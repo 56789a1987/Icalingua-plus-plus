@@ -1819,6 +1819,14 @@ ipcMain.on('popupStickerMenu', () => {
             },
         },
         {
+            label: 'Send poke',
+            type: 'normal',
+            click() {
+                ui.sendPoke()
+                ui.closePanel()
+            },
+        },
+        {
             label: 'Send shake',
             type: 'normal',
             click() {

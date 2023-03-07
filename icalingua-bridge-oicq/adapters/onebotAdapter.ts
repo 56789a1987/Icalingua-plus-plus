@@ -910,6 +910,15 @@ const adapter: typeof oicqAdapter = {
                         },
                     })
                     break
+                } else if (messageType === 'poke') {
+                    chain.length = 0
+                    chain.push({
+                        type: 'poke',
+                        data: {
+                            type: parseInt(content),
+                        },
+                    })
+                    break
                 } else if (messageType === 'shake') {
                     chain.length = 0
                     chain.push({

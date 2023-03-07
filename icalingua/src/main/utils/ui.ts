@@ -46,6 +46,9 @@ export default {
     sendDice() {
         sendToMainWindow('sendDice')
     },
+    sendPoke() {
+        sendToMainWindow('sendPoke')
+    },
     closeLoading() {
         sendToMainWindow('closeLoading')
     },

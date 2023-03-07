@@ -434,8 +434,8 @@ const processMessage = async (
                     2009: '让你皮',
                     2011: '宝贝球',
                 }
-                lastMessage.content += '[' + (pokemap[m.data.type] || pokemap[m.data.id]) + ']'
-                message.content += '[' + (pokemap[m.data.type] || pokemap[m.data.id]) + ']'
+                lastMessage.content += '[戳一戳]'
+                message.content += '[戳一戳]' + (pokemap[m.data.type] || pokemap[m.data.id])
                 break
             case 'sface':
                 lastMessage.content += '[sFace: ' + m.data.text + '(' + m.data.id + ')]'

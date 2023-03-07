@@ -533,6 +533,21 @@ export default {
                 })
             })
         })
+        ipcRenderer.on('sendPoke', (_) => {
+            this.$prompt('请输入戳一戳类型，0-回戳、1-戳一戳、2-比心、3-点赞、4-心碎、5-666、6-放大招', '提示', {
+                confirmButtonText: '确定',
+                cancelButtonText: '取消',
+                inputType: 'number',
+                inputValue: '1',
+                inputPattern: /^[0-6]$/,
+            }).then(({ value }) => {
+                this.sendMessage({
+                    content: value,
+                    room: this.selectedRoom,
+                    messageType: 'poke',
+                })
+            })
+        })
         ipcRenderer.on('updateRoom', (_, room) => {
             const oldRooms = this.rooms.filter(item => item.roomId !== room.roomId)
             let left = 0, right = oldRooms.length - 1, mid = 0
