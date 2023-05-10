@@ -420,7 +420,7 @@ import getStaticPath from '../../../../../utils/getStaticPath'
 
 import ipc from '../../../../utils/ipc'
 import { detectMobile, iOSDevice } from '../../utils/mobileDetection'
-import { isImageFile, isVideoFile } from '../../utils/mediaFile'
+import { isImageFile, isVideoFile, isAudioFile } from '../../utils/mediaFile'
 
 const faceDir = path.join(getStaticPath(), 'face')
 
@@ -718,7 +718,10 @@ export default {
                 const lastMessage = ownMessages[ownMessages.length - 1]
                 if (lastMessage.file && lastMessage.file.type.startsWith('image')) {
                     this.onPasteGif(lastMessage.file.url)
+                } else if (lastMessage.file && lastMessage.file.type.startsWith('audio')) {
+                    return
                 } else {
+                    return
                     this.file = lastMessage.file
                 }
                 this.messageReply = lastMessage.replyMessage
@@ -1134,6 +1137,7 @@ export default {
         },
         async sendMessage() {
             let message = this.message
+            this.message = ''
 
             if (!this.file && !message) return
 
@@ -1338,6 +1342,9 @@ export default {
             } else if (isVideoFile(this.file)) {
                 this.videoFile = fileURL
                 setTimeout(() => this.onMediaLoad(), 50)
+            } else if (isAudioFile(this.file)) {
+                this.videoFile = fileURL
+                setTimeout(() => this.onMediaLoad(), 50)
             } else {
                 this.message = file.name
             }
@@ -1471,6 +1478,7 @@ export default {
             const { roomId } = this.room
             if (roomId < 0) {
                 const groupMembers = await ipc.getGroupMembers(-roomId)
+                if (roomId !== this.room.roomId) return
                 const self = groupMembers.find((member) => member.user_id === this.currentUserId)
                 if (self && (self.role === 'owner' || self.role === 'admin')) {
                     groupMembers.unshift({
@@ -1522,7 +1530,7 @@ export default {
             if (this.mouseSelecting) return
 
             for (let el = e.target; el.className !== 'vac-messages-container'; el = el.parentElement) {
-                if (el.className.includes('vac-message-container')) return
+                if (el.className.includes && el.className.includes('vac-message-container')) return
             }
 
             this.mouseSelecting = true

@@ -303,7 +303,7 @@ const eventHandlers = {
                 senderId: data.operator_id,
                 timestamp: formatDate('hh:mm:ss'),
                 date: formatDate('yyyy/MM/dd'),
-                _id: data.time,
+                _id: `poke-${data.time * 1000}-${data.group_id}-${data.user_id}`,
                 system: true,
                 time: data.time * 1000,
                 files: [],
@@ -332,7 +332,7 @@ const eventHandlers = {
                 senderId: data.user_id,
                 timestamp: formatDate('hh:mm:ss'),
                 date: formatDate('yyyy/MM/dd'),
-                _id: data.time,
+                _id: `sign-${data.time * 1000}-${data.group_id}-${data.user_id}`,
                 system: true,
                 time: data.time * 1000,
                 files: [],
@@ -351,7 +351,7 @@ const eventHandlers = {
         if (await storage.isChatIgnored(roomId)) return
         const message: Message = {
             _id: `${now.getTime()}-${groupId}-${senderId}`,
-            content: `${data.nickname} 加入了本群`,
+            content: `${data.nickname} (${data.user_id}) 加入了本群`,
             username: data.nickname,
             senderId,
             time: data.time * 1000,
@@ -394,9 +394,11 @@ const eventHandlers = {
             content: data.dismiss
                 ? '群解散了'
                 : (data.member ? (data.member.card ? data.member.card : data.member.nickname) : data.user_id) +
-                  (data.operator_id === data.user_id || !operator
-                      ? ' 离开了本群'
-                      : ` 被 ${operator.card ? operator.card : operator.nickname} 踢了`),
+                  (data.operator_id === data.user_id
+                      ? ` (${data.user_id}) 离开了本群`
+                      : ` (${data.user_id}) 被 ${
+                            operator ? (operator.card ? operator.card : operator.nickname) : data.operator_id
+                        } (${data.operator_id}) 踢了`),
             username: data.member
                 ? data.member.card
                     ? data.member.card
@@ -812,7 +814,7 @@ const loginHandlers = {
         broadcast('login-slider', data.url)
     },
     onErr(data: LoginErrorEventData) {
-        broadcast('login-error', data.message)
+        broadcast('login-error', data.message + ` (${data.code})`)
         loginError = true
     },
 }
@@ -1057,7 +1059,7 @@ const adapter = {
         }
         if (!room) room = await storage.getRoom(roomId)
         if (!roomId) roomId = room.roomId
-        if (file && ((file.type && !file.type.includes('image')) || !file.type)) {
+        if (file && ((file.type && !file.type.includes('image') && !file.type.startsWith('audio')) || !file.type)) {
             // //群文件
             // if (roomId > 0) {
             //     clients.messageError('暂时无法向好友发送文件')
@@ -1244,14 +1246,23 @@ const adapter = {
             }
         }
         if (b64img) {
-            chain.push({
-                type: 'image',
-                data: {
-                    file: 'base64://' + b64img.replace(/^data:.+;base64,/, ''),
-                    type: sticker ? 'face' : 'image',
-                    url: imgpath && imgpath.startsWith('send_') ? imgpath.replace('send_', '') : b64img,
-                },
-            })
+            if (file && file.type.startsWith('audio')) {
+                chain.push({
+                    type: 'record',
+                    data: {
+                        file: Buffer.from(b64img.replace(/^data:.+;base64,/, ''), 'base64'),
+                    },
+                })
+            } else {
+                chain.push({
+                    type: 'image',
+                    data: {
+                        file: 'base64://' + b64img.replace(/^data:.+;base64,/, ''),
+                        type: sticker ? 'face' : 'image',
+                        url: imgpath && imgpath.startsWith('send_') ? imgpath.replace('send_', '') : b64img,
+                    },
+                })
+            }
         } else if (imgpath) {
             chain.push({
                 type: 'image',
@@ -1489,7 +1500,18 @@ const adapter = {
 
     getBkn: () => bot.bkn,
     getUin: () => bot.uin,
-    getGroupFileMeta: async (gin: number, fid: string, resolve) => resolve(await bot.acquireGfs(gin).download(fid)),
+    getGroupFileMeta: async (gin: number, fid: string, resolve) => {
+        try {
+            const res = await bot.acquireGfs(gin).download(fid)
+            resolve(res)
+        } catch (e) {
+            console.error(e)
+            resolve({
+                name: e.message + '(' + e.code + ')',
+                url: 'error',
+            })
+        }
+    },
     getUnreadCount: async (priority: 1 | 2 | 3 | 4 | 5, resolve) => resolve(await storage.getUnreadCount(priority)),
     getFirstUnreadRoom: async (priority: 1 | 2 | 3 | 4 | 5, resolve) =>
         resolve(await storage.getFirstUnreadRoom(priority)),
@@ -1666,7 +1688,8 @@ const adapter = {
             }
         }
         console.log(`${roomId} 已拉取 ${messages.length} 条消息`)
-        clients.messageSuccess(`已拉取 ${messages.length} 条消息`)
+        let room = await storage.getRoom(roomId)
+        clients.messageSuccess(`${room.roomName}(${Math.abs(roomId)}) 已拉取 ${messages.length} 条消息`)
         await storage.addMessages(roomId, messages)
         storage
             .fetchMessages(roomId, 0, currentLoadedMessagesCount + 20)
@@ -1739,6 +1762,22 @@ const adapter = {
             for (let i = length; i > 0; --i) result += map[Math.floor(Math.random() * map.length)]
             return result
         }
+        const _genIMEI = () => {
+            const imei = `86${randomString(12, true)}`
+            function calcSP(imei: string) {
+                let sum = 0
+                for (let i = 0; i < imei.length; ++i) {
+                    if (i % 2) {
+                        let j = parseInt(imei[i]) * 2
+                        sum += (j % 10) + Math.floor(j / 10)
+                    } else {
+                        sum += parseInt(imei[i])
+                    }
+                }
+                return (100 - sum) % 10
+            }
+            return imei + calcSP(imei)
+        }
         const device = `{
         "--begin--":    "该设备文件为尝试解决${username}的风控时随机生成。",
         "product":      "M2012K11AC",
@@ -1748,16 +1787,14 @@ const adapter = {
         "model":        "ILPP ${randomString(4).toUpperCase()}",
         "wifi_ssid":    "Redmi-${randomString(7).toUpperCase()}",
         "bootloader":   "U-boot",
-        "android_id":   "${randomString(16)}",
-        "boot_id":      "${randomString(8)}-${randomString(4)}-${randomString(4)}-${randomString(4)}-${randomString(
-            12,
-        )}",
+        "android_id":   "${randomString(4)}.${randomString(6, true)}.${randomString(4, true)}",
+        "boot_id":      "${crypto.randomUUID()}",
         "proc_version": "Linux version 4.19.157-${randomString(13)} (android-build@xiaomi.com)",
         "mac_address":  "2B:${randomString(2).toUpperCase()}:${randomString(2).toUpperCase()}:${randomString(
             2,
         ).toUpperCase()}:${randomString(2).toUpperCase()}:${randomString(2).toUpperCase()}",
         "ip_address":   "192.168.${randomString(2, true)}.${randomString(2, true)}",
-        "imei":         "86${randomString(13, true)}",
+        "imei":         "${_genIMEI()}",
         "incremental":  "${randomString(10, true)}",
         "--end--":      "修改后可能需要重新验证设备。"
     }`

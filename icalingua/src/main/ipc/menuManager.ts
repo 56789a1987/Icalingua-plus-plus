@@ -523,6 +523,18 @@ const buildRoomMenu = async (room: Room): Promise<Menu> => {
                 },
             }),
         )
+        menu.append(
+            new MenuItem({
+                label: '匿名发送群消息',
+                type: 'checkbox',
+                checked: getConfig().anonymous === true,
+                visible: getConfig().sendRawMessage === false,
+                click: (menuItem) => {
+                    getConfig().anonymous = menuItem.checked
+                    saveConfigFile()
+                },
+            }),
+        )
     } else {
         // menu.append(new MenuItem({
         //     label: 'ta 的线索',
@@ -762,20 +774,25 @@ export const updateAppMenu = async () => {
             }),
         ],
         priority: new MenuItem({
-            label: '通知优先级',
+            label: '通知设置',
             submenu: [
-                ...([1, 2, 3, 4, 5] as const).map((e) => ({
-                    type: 'radio' as const,
-                    label: `${e}`,
-                    checked: getConfig().priority === e,
-                    click: () => setPriority(e),
-                })),
                 {
-                    type: 'separator',
-                },
-                {
-                    label: '帮助',
-                    click: () => openImage(path.join(getStaticPath(), 'notification.webp')),
+                    label: '通知优先级',
+                    submenu: [
+                        ...([1, 2, 3, 4, 5] as const).map((e) => ({
+                            type: 'radio' as const,
+                            label: `${e}`,
+                            checked: getConfig().priority === e,
+                            click: () => setPriority(e),
+                        })),
+                        {
+                            type: 'separator',
+                        },
+                        {
+                            label: '帮助',
+                            click: () => openImage(path.join(getStaticPath(), 'notification.webp')),
+                        },
+                    ],
                 },
                 {
                     type: 'checkbox',
@@ -783,6 +800,18 @@ export const updateAppMenu = async () => {
                     checked: getConfig().disableNotification,
                     click: (item) => {
                         getConfig().disableNotification = item.checked
+                        updateAppMenu()
+                        updateTrayMenu()
+                        saveConfigFile()
+                    },
+                },
+                {
+                    type: 'checkbox',
+                    label: '禁用全体通知',
+                    checked: getConfig().disableAtAll,
+                    visible: !getConfig().disableNotification,
+                    click: (item) => {
+                        getConfig().disableAtAll = item.checked
                         updateAppMenu()
                         updateTrayMenu()
                         saveConfigFile()
@@ -1042,21 +1071,8 @@ export const updateAppMenu = async () => {
                         visible: !version.isProduction && (versionClickTimes >= 3 || getConfig().debugmode === true),
                         click: (menuItem) => {
                             getConfig().debugmode = menuItem.checked
-                            if (!menuItem.checked) {
-                                getConfig().anonymous = false
-                            }
                             saveConfigFile()
                             updateAppMenu()
-                        },
-                    },
-                    {
-                        label: '以匿名方式发送群消息',
-                        type: 'checkbox',
-                        checked: getConfig().anonymous === true,
-                        visible: getConfig().debugmode === true && getConfig().sendRawMessage === false,
-                        click: (menuItem) => {
-                            getConfig().anonymous = menuItem.checked
-                            saveConfigFile()
                         },
                     },
                     {

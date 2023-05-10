@@ -87,6 +87,8 @@ import {
 } from '../utils/windowManager'
 import ChatGroup from '@icalingua/types/ChatGroup'
 import SpecialFeature from '@icalingua/types/SpecialFeature'
+import { LoginErrorEventData } from 'oicq-icalingua-plus-plus'
+import { SliderEventData } from 'oicq-icalingua-plus-plus'
 
 let bot: Client
 let storage: StorageProvider
@@ -197,7 +199,7 @@ const eventHandlers = {
         if (
             !isAppLocked() &&
             (!getMainWindow().isFocused() || !getMainWindow().isVisible() || roomId !== ui.getSelectedRoomId()) &&
-            (room.priority >= getConfig().priority || at) &&
+            (room.priority >= getConfig().priority || at === true || (at && !getConfig().disableAtAll)) &&
             !isSelfMsg &&
             !getConfig().disableNotification
         ) {
@@ -408,7 +410,7 @@ const eventHandlers = {
                 senderId: data.operator_id,
                 timestamp: formatDate('hh:mm:ss'),
                 date: formatDate('yyyy/MM/dd'),
-                _id: data.time,
+                _id: `poke-${data.time * 1000}-${data.group_id}-${data.user_id}`,
                 system: true,
                 time: data.time * 1000,
                 files: [],
@@ -437,7 +439,7 @@ const eventHandlers = {
                 senderId: data.user_id,
                 timestamp: formatDate('hh:mm:ss'),
                 date: formatDate('yyyy/MM/dd'),
-                _id: data.time,
+                _id: `sign-${data.time * 1000}-${data.group_id}-${data.user_id}`,
                 system: true,
                 time: data.time * 1000,
                 files: [],
@@ -457,7 +459,7 @@ const eventHandlers = {
         if (await storage.isChatIgnored(roomId)) return
         const message: Message = {
             _id: `${now.getTime()}-${groupId}-${senderId}`,
-            content: `${data.nickname} 加入了本群`,
+            content: `${data.nickname} (${data.user_id}) 加入了本群`,
             username: data.nickname,
             senderId,
             time: data.time * 1000,
@@ -501,9 +503,11 @@ const eventHandlers = {
             content: data.dismiss
                 ? '群解散了'
                 : (data.member ? (data.member.card ? data.member.card : data.member.nickname) : data.user_id) +
-                  (data.operator_id === data.user_id || !operator
-                      ? ' 离开了本群'
-                      : ` 被 ${operator.card ? operator.card : operator.nickname} 踢了`),
+                  (data.operator_id === data.user_id
+                      ? ` (${data.user_id}) 离开了本群`
+                      : ` (${data.user_id}) 被 ${
+                            operator ? (operator.card ? operator.card : operator.nickname) : data.operator_id
+                        } (${data.operator_id}) 踢了`),
             username: data.member
                 ? data.member.card
                     ? data.member.card
@@ -874,7 +878,7 @@ const eventHandlers = {
     },
 }
 const loginHandlers = {
-    slider(data) {
+    slider(data: SliderEventData) {
         console.log(data)
         const veriWin = newIcalinguaWindow({
             height: 500,
@@ -890,13 +894,13 @@ const loginHandlers = {
         })
         veriWin.loadURL(data.url, {
             userAgent:
-                'Mozilla/5.0 (Linux; Android 7.1.1; MIUI ONEPLUS/A5000_23_17; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/77.0.3865.120 MQQBrowser/6.2 TBS/045426 Mobile Safari/537.36 V1_AND_SQ_8.3.9_0_TIM_D QQ/3.1.1.2900 NetType/WIFI WebP/0.3.0 Pixel/720 StatusBarHeight/36 SimpleUISwitch/0 QQTheme/1015712',
+                'Mozilla/5.0 (Linux; Android 7.1.1; MIUI ONEPLUS/A5000_23_17; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/98.0.4758.102 MQQBrowser/6.2 TBS/046403 Mobile Safari/537.36 V1_AND_SQ_8.9.50_3898_YYB_D QQ/8.9.50.10650 NetType/WIFI WebP/0.3.0 AppId/537155599 Pixel/720 StatusBarHeight/36 SimpleUISwitch/0 QQTheme/1000 StudyMode/0 CurrentMode/0 CurrentFontScale/1.0 GlobalDensityScale/1.0285714 AllowLandscape/false InMagicWin/0',
         })
     },
-    onErr(data) {
+    onErr(data: LoginErrorEventData) {
         console.log(data)
         showLoginWindow()
-        sendToLoginWindow('error', data.message)
+        sendToLoginWindow('error', data.message + ` (${data.code})`)
         loginError = true
     },
     async onSucceed() {
@@ -1262,7 +1266,7 @@ const adapter: OicqAdapter = {
         }
         if (!room) room = await storage.getRoom(roomId)
         if (!roomId) roomId = room.roomId
-        if (file && typeof file.type === 'string' && !file.type.includes('image')) {
+        if (file && typeof file.type === 'string' && !file.type.includes('image') && !file.type.startsWith('audio')) {
             //群文件
             if (roomId > 0) {
                 bot.sendFile(roomId, file.path, undefined, ui.uploadProgress).then(async (data) => {
@@ -1483,14 +1487,23 @@ const adapter: OicqAdapter = {
             }
         }
         if (b64img) {
-            chain.push({
-                type: 'image',
-                data: {
-                    file: 'base64://' + b64img.replace(/^data:.+;base64,/, ''),
-                    type: sticker ? 'face' : 'image',
-                    url: imgpath && imgpath.startsWith('send_') ? imgpath.replace('send_', '') : b64img,
-                },
-            })
+            if (file && file.type.startsWith('audio')) {
+                chain.push({
+                    type: 'record',
+                    data: {
+                        file: Buffer.from(b64img.replace(/^data:.+;base64,/, ''), 'base64'),
+                    },
+                })
+            } else {
+                chain.push({
+                    type: 'image',
+                    data: {
+                        file: 'base64://' + b64img.replace(/^data:.+;base64,/, ''),
+                        type: sticker ? 'face' : 'image',
+                        url: imgpath && imgpath.startsWith('send_') ? imgpath.replace('send_', '') : b64img,
+                    },
+                })
+            }
         } else if (imgpath) {
             chain.push({
                 type: 'image',
@@ -1564,7 +1577,7 @@ const adapter: OicqAdapter = {
                 data_dir: path.join(app.getPath('userData'), '/data'),
                 ignore_self: false,
                 brief: true,
-                log_level: process.env.NODE_ENV === 'development' ? 'mark' : 'off',
+                log_level: process.env.NODE_ENV === 'development' ? 'warn' : 'error',
             })
             _sendPrivateMsg = bot.sendPrivateMsg
             bot.sendPrivateMsg = async (user_id: number, message: MessageElem[] | string, auto_escape?: boolean) => {
@@ -1730,7 +1743,19 @@ const adapter: OicqAdapter = {
     getBkn: () => bot.bkn,
     getUin: () => bot.uin,
     getNickname: () => bot.nickname,
-    getGroupFileMeta: (gin: number, fid: string) => bot.acquireGfs(gin).download(fid),
+    getGroupFileMeta: (gin: number, fid: string) => {
+        let meta
+        try {
+            meta = bot.acquireGfs(gin).download(fid)
+        } catch (e) {
+            errorHandler(e)
+            meta = {
+                name: e.message + '(' + e.code + ')',
+                url: 'error',
+            }
+        }
+        return meta
+    },
     getUnreadCount: async () => await storage.getUnreadCount(getConfig().priority),
     getFirstUnreadRoom: async () => await storage.getFirstUnreadRoom(getConfig().priority),
     getSelectedRoom: async () => await storage.getRoom(ui.getSelectedRoomId()),
@@ -1951,24 +1976,24 @@ const adapter: OicqAdapter = {
         }
         const { messages, done } = await fetchLoop(60)
         await storage.addMessages(roomId, messages)
+        let room = await storage.getRoom(roomId)
         if (roomId === ui.getSelectedRoomId())
             storage.fetchMessages(roomId, 0, currentLoadedMessagesCount + 20).then(ui.setMessages)
         if (done) {
-            ui.messageSuccess(`已拉取 ${messages.length} 条消息`)
+            ui.messageSuccess(`${room.roomName}(${Math.abs(roomId)}) 已拉取 ${messages.length} 条消息`)
             ui.clearHistoryCount()
         } else {
-            ui.message(`已拉取 ${messages.length} 条消息，正在后台继续拉取`)
+            ui.message(`${room.roomName}(${Math.abs(roomId)}) 已拉取 ${messages.length} 条消息，正在后台继续拉取`)
             {
                 const { messages } = await fetchLoop()
                 await storage.addMessages(roomId, messages)
-                ui.messageSuccess(`已拉取 ${messages.length} 条消息`)
+                ui.messageSuccess(`${room.roomName}(${Math.abs(roomId)}) 已拉取 ${messages.length} 条消息`)
                 ui.clearHistoryCount()
             }
         }
 
         // 更新最近消息
         if (!messages.length) return
-        let room = await storage.getRoom(roomId)
         if (room.utime > lastMessageTime) return
         room.lastMessage = lastMessage
         room.utime = lastMessageTime
@@ -2024,6 +2049,22 @@ const adapter: OicqAdapter = {
             for (let i = length; i > 0; --i) result += map[Math.floor(Math.random() * map.length)]
             return result
         }
+        const _genIMEI = () => {
+            const imei = `86${randomString(12, true)}`
+            function calcSP(imei: string) {
+                let sum = 0
+                for (let i = 0; i < imei.length; ++i) {
+                    if (i % 2) {
+                        let j = parseInt(imei[i]) * 2
+                        sum += (j % 10) + Math.floor(j / 10)
+                    } else {
+                        sum += parseInt(imei[i])
+                    }
+                }
+                return (100 - sum) % 10
+            }
+            return imei + calcSP(imei)
+        }
         const device = `{
         "--begin--":    "该设备文件为尝试解决${username}的风控时随机生成。",
         "product":      "M2012K11AC",
@@ -2033,16 +2074,14 @@ const adapter: OicqAdapter = {
         "model":        "ILPP ${randomString(4).toUpperCase()}",
         "wifi_ssid":    "Redmi-${randomString(7).toUpperCase()}",
         "bootloader":   "U-boot",
-        "android_id":   "${randomString(16)}",
-        "boot_id":      "${randomString(8)}-${randomString(4)}-${randomString(4)}-${randomString(4)}-${randomString(
-            12,
-        )}",
+        "android_id":   "${randomString(4)}.${randomString(6, true)}.${randomString(4, true)}",
+        "boot_id":      "${crypto.randomUUID()}",
         "proc_version": "Linux version 4.19.157-${randomString(13)} (android-build@xiaomi.com)",
         "mac_address":  "2B:${randomString(2).toUpperCase()}:${randomString(2).toUpperCase()}:${randomString(
             2,
         ).toUpperCase()}:${randomString(2).toUpperCase()}:${randomString(2).toUpperCase()}",
         "ip_address":   "192.168.${randomString(2, true)}.${randomString(2, true)}",
-        "imei":         "86${randomString(13, true)}",
+        "imei":         "${_genIMEI()}",
         "incremental":  "${randomString(10, true)}",
         "--end--":      "修改后可能需要重新验证设备。"
     }`

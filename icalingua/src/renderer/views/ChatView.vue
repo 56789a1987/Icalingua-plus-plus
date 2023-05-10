@@ -36,7 +36,7 @@
                         @click="
                             $message({
                                 type: 'info',
-                                message: 'Coming soon... 目前中键删除对应分组，右键增加/删除当前聊天到分组',
+                                message: '懒得写了（目前中键删除对应分组，右键增加/删除当前聊天到分组',
                             })
                         "
                     />
@@ -667,6 +667,13 @@ Chromium ${process.versions.chrome}` : ''
             if (!roomId) roomId = room.roomId
             if (file) {
                 if (file.type.includes('image')) {
+                    if (file.size >= 104857600) {
+                        this.$message.error('图片过大，无法发送')
+                        return
+                    }
+                    if (file.size >= 10485760) {
+                        this.$message.warning('图片较大，发送可能失败，软件可能卡死')
+                    }
                     const crypto = require('crypto')
                     const buffer = Buffer.from(await file.blob.arrayBuffer())
                     const imgHashStr = crypto.createHash('md5').update(buffer).digest('hex').toUpperCase()
@@ -674,8 +681,22 @@ Chromium ${process.versions.chrome}` : ''
                     b64img = `data:${file.type};base64,${b64}`
                     imgpath = imgpath || `send_https://gchat.qpic.cn/gchatpic_new/0/0-0-${imgHashStr}/0`
                     file = null
-                }
-                else
+                } else if (file.type.startsWith('audio')) {
+                    if (file.size >= 104857600) {
+                        this.$message.error('语音过大，无法发送')
+                        return
+                    }
+                    if (file.size >= 10485760) {
+                        this.$message.warning('语音较大，发送可能失败，软件可能卡死')
+                    }
+                    const buffer = Buffer.from(await file.blob.arrayBuffer())
+                    b64img = `data:audio;base64,${buffer.toString('base64')}`
+                    file = {
+                        type: file.type,
+                        size: file.size,
+                        path: file.path.substring(file.path.split('\\').join('/').lastIndexOf('/') + 1),
+                    }
+                } else
                     file = {
                         type: file.type,
                         size: file.size,
@@ -946,12 +967,14 @@ Chromium ${process.versions.chrome}` : ''
             let newWidth = e.target.innerWidth
             if (!this.useSinglePanel) {
                 if (newWidth < 880) {
+                    this.showSinglePanel = false
                     this.roomPanelResize(this.$refs.roomPanel, null, `${newWidth - 500}px`)
                 }
                 return
             }
             let oldValue = this.showSinglePanel
             this.showSinglePanel = newWidth < 720
+            if (this.showSinglePanel) this.roomPanelResize(this.$refs.roomPanel, null, '300px')
             if (this.showSinglePanel && this.selectedRoomId === 0) this.showPanel = 'contact'
             if (oldValue && !this.showSinglePanel) this.$refs.roomPanel.style.width = '300px'
         },

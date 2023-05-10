@@ -166,6 +166,13 @@ export const downloadImage2Open = (url: string) => {
 export const downloadGroupFile = async (gin: number, fid: string, saveAs = false) => {
     try {
         const meta = await getGroupFileMeta(gin, fid)
+        if (meta.url === 'error') {
+            ui.notifyError({
+                title: '下载失败',
+                message: meta.name,
+            })
+            return
+        }
         download(meta.url, meta.name, undefined, saveAs)
     } catch (e) {
         ui.notifyError(e)
@@ -202,7 +209,7 @@ ipcMain.on('download', (_, url, out, dir, saveAs) => download(url, out, dir, sav
 ipcMain.on('downloadFileByMessageData', (_, data: { action: string; message: Message; room: Room }) =>
     downloadFileByMessageData(data),
 )
-ipcMain.on('downloadImage', (_, url) => downloadImage(url))
+ipcMain.on('downloadImage', (_, url, saveAs = false) => downloadImage(url, saveAs))
 ipcMain.on('downloadGroupFile', (_, gin: number, fid: string) => downloadGroupFile(gin, fid))
 ipcMain.on('cancelDownload', (_, url: string) => downloads.get(url)?.cancel())
 ipcMain.on('setAria2Config', (_, config: Aria2Config) => {
