@@ -1941,7 +1941,6 @@ ipcMain.on('popupStickerMenu', (_, closePanel, e) => {
             type: 'normal',
             click() {
                 ui.sendPoke()
-                ui.closePanel()
             },
         },
         {

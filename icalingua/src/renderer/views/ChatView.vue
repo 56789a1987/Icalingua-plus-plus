@@ -220,6 +220,20 @@
                 <el-button type="primary" @click="sendRps(0)">随机</el-button>
             </span>
         </el-dialog>
+        <el-dialog title="发送戳一戳" :visible.sync="sendPokeShown">
+            <div class="random-select">
+                <el-button @click="sendPoke(1)">戳一戳</el-button>
+                <el-button @click="sendPoke(2)">比心</el-button>
+                <el-button @click="sendPoke(3)">点赞</el-button>
+                <el-button @click="sendPoke(4)">心碎</el-button>
+                <el-button @click="sendPoke(5)">666</el-button>
+                <el-button @click="sendPoke(6)">放大招</el-button>
+            </div>
+            <span slot="footer">
+                <el-button @click="sendPokeShown = false">取消</el-button>
+                <el-button type="primary" @click="sendPoke(0)">回戳</el-button>
+            </span>
+        </el-dialog>
     </div>
 </template>
 
@@ -302,6 +316,7 @@ export default {
             notifyProgresses: new Map(),
             sendDiceShown: false,
             sendRpsShown: false,
+            sendPokeShown: false,
         }
     },
     async created() {
@@ -552,19 +567,7 @@ export default {
             this.sendRpsShown = true
         })
         ipcRenderer.on('sendPoke', (_) => {
-            this.$prompt('请输入戳一戳类型，0-回戳、1-戳一戳、2-比心、3-点赞、4-心碎、5-666、6-放大招', '提示', {
-                confirmButtonText: '确定',
-                cancelButtonText: '取消',
-                inputType: 'number',
-                inputValue: '1',
-                inputPattern: /^[0-6]$/,
-            }).then(({ value }) => {
-                this.sendMessage({
-                    content: value,
-                    room: this.selectedRoom,
-                    messageType: 'poke',
-                })
-            })
+            this.sendPokeShown = true
         })
         ipcRenderer.on('updateRoom', (_, room) => {
             const oldRooms = this.rooms.filter(item => item.roomId !== room.roomId)
@@ -1032,6 +1035,14 @@ Chromium ${process.versions.chrome}` : ''
                 content: value.toString(),
                 room: this.selectedRoom,
                 messageType: 'rps',
+            })
+        },
+        sendPoke(value) {
+            this.sendPokeShown = false
+            this.sendMessage({
+                content: value.toString(),
+                room: this.selectedRoom,
+                messageType: 'poke',
             })
         },
     },
