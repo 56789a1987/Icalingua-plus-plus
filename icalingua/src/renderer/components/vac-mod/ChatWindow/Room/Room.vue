@@ -18,6 +18,7 @@
             :room="room"
             :members-count="membersCount"
             :showSinglePanel="showSinglePanel"
+            :removeEmotes="removeHeaderEmotes"
             @toggle-rooms-list="$emit('toggle-rooms-list')"
             @menu-action-handler="$emit('menu-action-handler', $event)"
             @pokefriend="$emit('pokefriend')"
@@ -109,10 +110,11 @@
                                 :linkify="linkify"
                                 :forward-res-id="forwardResId"
                                 :msgsToForward="msgsToForward"
+                                :usePanguJs="usePanguJsRecv"
                                 @open-file="openFile"
                                 @add-new-message="addNewMessage"
-                                @ctx="msgctx(m)"
-                                @avatar-ctx="avatarCtx(m)"
+                                @ctx="msgctx($event, m)"
+                                @avatar-ctx="avatarCtx(m, $event)"
                                 @download-image="$emit('download-image', $event)"
                                 @poke="$emit('pokegroup', m.senderId)"
                                 @open-forward="$emit('open-forward', $event)"
@@ -205,6 +207,7 @@
                 :message-reply="messageReply"
                 :linkify="linkify"
                 :showForwardPanel="showForwardPanel"
+                :usePanguJs="usePanguJsRecv"
                 @reset-message="resetMessage"
             >
                 <template v-for="(index, name) in $scopedSlots" #[name]="data">
@@ -215,7 +218,7 @@
                 :messages="messages"
                 :showForwardPanel="showForwardPanel"
                 :msgsToForward="msgsToForward"
-                @choose-forward-target="$emit('choose-forward-target')"
+                @choose-forward-target="$emit('choose-forward-target', $event)"
                 @close-forward-panel="closeForwardPanel"
                 :account="account"
                 :username="username"
@@ -266,7 +269,7 @@
                         {{ file.name }}
                     </div>
                     <div v-else class="vac-file-message-room">
-                        {{ message }}
+                        {{ $refs.roomTextarea.message }}
                     </div>
                     <div class="vac-svg-button vac-icon-remove" @click="resetMessage(null, true)">
                         <slot name="file-close-icon">
@@ -315,10 +318,9 @@
                     </SearchInput>
                 </transition>
 
-                <textarea
+                <room-text-area
                     v-show="!file || imageFile || videoFile"
                     ref="roomTextarea"
-                    v-model="message"
                     :placeholder="textMessages.TYPE_MESSAGE"
                     class="vac-textarea"
                     :class="{
@@ -329,7 +331,7 @@
                         'padding-left': `${mediaDimensions ? mediaDimensions.width - 10 : 12}px`,
                     }"
                     @input="onChangeInput"
-                    @click.right="textctx"
+                    @click-right="textctx"
                     spellcheck="false"
                 />
 
@@ -340,20 +342,41 @@
                         </slot>
                     </div>
 
-                    <div class="vac-svg-button" @click="$emit('stickers-panel')">
+                    <div class="vac-svg-button" @click="$emit('stickers-panel')" @click.right="stickersMenu($event)">
                         <svg-icon name="emoji" />
                     </div>
 
-                    <div
-                        v-if="showFiles"
-                        class="vac-svg-button"
-                        @click="launchFilePicker(false)"
-                        @click.right="launchFilePicker(true)"
-                    >
-                        <slot name="paperclip-icon">
-                            <svg-icon name="paperclip" />
-                        </slot>
-                    </div>
+                    <el-popover placement="top" trigger="hover">
+                        <div
+                            slot="reference"
+                            v-if="showFiles"
+                            class="vac-svg-button"
+                            @click="launchFilePicker(false)"
+                            @click.right="launchFilePicker(true)"
+                        >
+                            <slot name="paperclip-icon">
+                                <svg-icon name="paperclip" />
+                            </slot>
+                        </div>
+                        <el-button
+                            type="text"
+                            icon="el-icon-picture-outline"
+                            @click="launchFilePicker(false)"
+                            style="text-align: center; width: 100%"
+                        >
+                            识别类型发送 (图标左键)
+                        </el-button>
+                        <!-- 分割线-->
+                        <div style="height: 1px; background-color: #ebebeb; margin: 0 5px"></div>
+                        <el-button
+                            type="text"
+                            icon="el-icon-paperclip"
+                            @click="launchFilePicker(true)"
+                            style="text-align: center; width: 100%"
+                        >
+                            仅以文件发送 (图标右键)
+                        </el-button>
+                    </el-popover>
 
                     <div v-if="textareaAction" class="vac-svg-button" @click="textareaActionHandler">
                         <slot name="custom-action-icon">
@@ -412,6 +435,7 @@ import SvgIcon from '../../components/SvgIcon'
 import RoomHeader from './RoomHeader'
 import RoomMessageReply from './RoomMessageReply'
 import RoomForwardMessage from './RoomForwardMessage'
+import RoomTextArea from './RoomTextArea'
 import Message from '../Message/Message'
 import SearchInput from '../../../SearchInput'
 
@@ -439,6 +463,7 @@ export default {
         RoomHeader,
         RoomMessageReply,
         RoomForwardMessage,
+        RoomTextArea,
         Message,
         SearchInput,
     },
@@ -470,7 +495,6 @@ export default {
         loadingRooms: { type: Boolean, required: true },
         roomInfo: { type: Function, default: null },
         textareaAction: { type: Function, default: null },
-        membersCount: { type: Number, default: 0 },
         linkify: { type: Boolean, default: true },
         account: { type: Number, required: true },
         username: { type: String, required: true },
@@ -478,6 +502,8 @@ export default {
         lastUnreadCount: { type: Number, required: false, default: 0 },
         lastUnreadAt: { type: Boolean, required: false, default: false },
         showSinglePanel: { type: Boolean, require: true, default: false },
+        removeHeaderEmotes: { type: Boolean, required: false, default: false },
+        usePanguJsRecv: { type: Boolean, required: false, default: false },
     },
     data() {
         return {
@@ -531,6 +557,8 @@ export default {
             mouseSelecting: false,
             mouseSelectArea: null,
             mouseSelectIds: null,
+            isMessageEmpty: true,
+            membersCount: 0,
         }
     },
     computed: {
@@ -546,9 +574,6 @@ export default {
         },
         showMessagesStarted() {
             return this.messages.length && this.messagesLoaded && this.visibleViewport.head === 0
-        },
-        isMessageEmpty() {
-            return !this.file && !this.message.trim()
         },
         maxViewportLength() {
             const w = window.visualViewport ? window.visualViewport : window
@@ -663,19 +688,24 @@ export default {
                 else this.infiniteState.head.complete()
             }
         },
+        file(val) {
+            this.isMessageEmpty = !val && !this.$refs.roomTextarea.message.trim()
+        },
     },
     async mounted() {
         this.newMessages = []
-        this.$refs.roomTextarea.addEventListener('keydown', (e) => {
+        this.$refs.roomTextarea.$refs.roomTextarea.addEventListener('keydown', (e) => {
             if (e.isComposing) return
             if (e.key === 'Enter') {
                 switch (keyToSendMessage) {
                     case 'Enter':
                         if (e.ctrlKey) {
-                            let selectionStart = this.$refs.roomTextarea.selectionStart
-                            let selectionEnd = this.$refs.roomTextarea.selectionEnd
-                            this.message =
-                                this.message.substr(0, selectionStart) + '\n' + this.message.substr(selectionEnd)
+                            let selectionStart = this.$refs.roomTextarea.$refs.roomTextarea.selectionStart
+                            let selectionEnd = this.$refs.roomTextarea.$refs.roomTextarea.selectionEnd
+                            this.$refs.roomTextarea.message =
+                                this.$refs.roomTextarea.message.substr(0, selectionStart) +
+                                '\n' +
+                                this.$refs.roomTextarea.message.substr(selectionEnd)
                             setTimeout(() => this.onChangeInput(), 0)
                         } else if (e.shiftKey) {
                             setTimeout(() => this.onChangeInput(), 0)
@@ -694,10 +724,12 @@ export default {
                         break
                     case 'ShiftEnter':
                         if (e.ctrlKey) {
-                            let selectionStart = this.$refs.roomTextarea.selectionStart
-                            let selectionEnd = this.$refs.roomTextarea.selectionEnd
-                            this.message =
-                                this.message.substr(0, selectionStart) + '\n' + this.message.substr(selectionEnd)
+                            let selectionStart = this.$refs.roomTextarea.$refs.roomTextarea.selectionStart
+                            let selectionEnd = this.$refs.roomTextarea.$refs.roomTextarea.selectionEnd
+                            this.$refs.roomTextarea.message =
+                                this.$refs.roomTextarea.message.substr(0, selectionStart) +
+                                '\n' +
+                                this.$refs.roomTextarea.message.substr(selectionEnd)
                             setTimeout(() => this.onChangeInput(), 0)
                         } else if (!e.shiftKey) {
                             setTimeout(() => this.onChangeInput(), 0)
@@ -710,7 +742,7 @@ export default {
                         console.log('qwq')
                 }
             } else if (e.key === 'ArrowUp') {
-                if (this.message) return
+                if (this.$refs.roomTextarea.message) return
                 //编辑重发上一条消息
                 e.preventDefault()
                 const ownMessages = this.messages.filter((e) => e.senderId === this.currentUserId)
@@ -720,16 +752,17 @@ export default {
                     this.onPasteGif(lastMessage.file.url)
                 } else if (lastMessage.file && lastMessage.file.type.startsWith('audio')) {
                     return
-                } else {
+                } else if (lastMessage.file) {
                     return
                     this.file = lastMessage.file
                 }
                 this.messageReply = lastMessage.replyMessage
-                this.message = lastMessage.content
+                this.$refs.roomTextarea.message = lastMessage.content
                 this.$nextTick(
                     () =>
-                        (this.$refs.roomTextarea.selectionStart = this.$refs.roomTextarea.selectionEnd =
-                            this.message.length),
+                        (this.$refs.roomTextarea.$refs.roomTextarea.selectionStart =
+                            this.$refs.roomTextarea.$refs.roomTextarea.selectionEnd =
+                                this.$refs.roomTextarea.message.length),
                 )
                 this.editAndResend = lastMessage._id
             } else if (e.key === 'e' && e.ctrlKey) {
@@ -787,7 +820,12 @@ export default {
             keyToSendMessage = key
         })
         ipcRenderer.on('addMessageText', (_, message) => {
-            this.message += message
+            this.$refs.roomTextarea.message += message
+            this.focusTextarea()
+            this.$nextTick(() => this.resizeTextarea())
+        })
+        ipcRenderer.on('setMessageText', (_, message) => {
+            this.$refs.roomTextarea.message = message
             this.focusTextarea()
             this.$nextTick(() => this.resizeTextarea())
         })
@@ -815,7 +853,7 @@ export default {
         }
     },
     methods: {
-        sendForward(target, name) {
+        sendForward(target, name, multi = true) {
             const isJSON = (str) => {
                 try {
                     if (typeof JSON.parse(str) == 'object') return true
@@ -948,10 +986,23 @@ export default {
             const origin = parseInt(String(this.roomId))
             this.$emit('start-chat', target, name)
 
-            if (origin < 0) {
-                ipc.makeForward(messagesToSend, dm, -origin, target)
+            if (!multi) {
+                messagesToSend.forEach((msg, index) => {
+                    console.log(msg.message)
+                    setTimeout(() => {
+                        this.$emit('send-message', {
+                            roomId: target,
+                            content: JSON.stringify(msg.message),
+                            messageType: 'raw',
+                        })
+                    }, (index + 1) * 1000)
+                })
             } else {
-                ipc.makeForward(messagesToSend, dm, undefined, target)
+                if (origin < 0) {
+                    ipc.makeForward(messagesToSend, dm, -origin, target)
+                } else {
+                    ipc.makeForward(messagesToSend, dm, undefined, target)
+                }
             }
             this.closeForwardPanel()
         },
@@ -1052,12 +1103,12 @@ export default {
 
             if (editFile) {
                 this.file = null
-                this.message = ''
+                this.$refs.roomTextarea.message = ''
                 return
             }
 
             this.resetTextareaSize()
-            this.message = ''
+            this.$refs.roomTextarea.message = ''
             this.editedMessage = {}
             this.messageReply = null
             this.file = null
@@ -1079,23 +1130,26 @@ export default {
             this.$nextTick(() => this.resizeTextarea())
         },
         resetTextareaSize() {
-            if (!this.$refs['roomTextarea']) return
-            this.$refs['roomTextarea'].style.height = '20px'
+            if (!this.$refs.roomTextarea.$refs.roomTextarea) return
+            this.$refs.roomTextarea.$refs.roomTextarea.style.height = '20px'
         },
         useMessageContent(content) {
-            const textarea = this.$refs.roomTextarea
+            const textarea = this.$refs.roomTextarea.$refs.roomTextarea
             const { selectionStart, selectionEnd } = textarea
-            this.message = this.message.slice(0, selectionStart) + content + this.message.slice(selectionEnd)
+            this.$refs.roomTextarea.message =
+                this.$refs.roomTextarea.message.slice(0, selectionStart) +
+                content +
+                this.$refs.roomTextarea.message.slice(selectionEnd)
             const newStart = selectionStart + content.length
             this.$nextTick(() => textarea.setSelectionRange(newStart, newStart))
         },
         focusTextarea(disableMobileFocus) {
             if (detectMobile() && disableMobileFocus) return
-            if (!this.$refs['roomTextarea']) return
-            this.$refs['roomTextarea'].focus()
+            if (!this.$refs.roomTextarea.$refs.roomTextarea) return
+            this.$refs.roomTextarea.$refs.roomTextarea.focus()
         },
         preventKeyboardFromClosing() {
-            if (this.keepKeyboardOpen) this.$refs['roomTextarea'].focus()
+            if (this.keepKeyboardOpen) this.$refs.roomTextarea.$refs.roomTextarea.focus()
         },
         closeQuickFace() {
             this.isQuickFaceOn = false
@@ -1136,8 +1190,8 @@ export default {
             setTimeout(() => this.focusTextarea(), 0)
         },
         async sendMessage() {
-            let message = this.message
-            this.message = ''
+            let message = this.$refs.roomTextarea.message
+            this.$refs.roomTextarea.message = ''
 
             if (!this.file && !message) return
 
@@ -1170,7 +1224,7 @@ export default {
                 return false
             }
             const debugmode = await ipc.getDebugSetting()
-            let message = this.message.trim()
+            let message = this.$refs.roomTextarea.message.trim()
 
             if (!this.file && !message) return
 
@@ -1250,7 +1304,7 @@ export default {
                 setTimeout(() => this.onMediaLoad(), 50)
             }
 
-            this.message = message.content
+            this.$refs.roomTextarea.message = message.content
         },
         getTopScroll(element) {
             const { scrollTop } = element
@@ -1291,16 +1345,19 @@ export default {
         onChangeInput() {
             this.keepKeyboardOpen = true
             this.resizeTextarea()
-            this.$emit('typing-message', this.message)
-            const selectionStart = this.$refs.roomTextarea.selectionStart
-            if (this.room.roomId < 0 && this.message.slice(selectionStart - 1, selectionStart) === '@') {
+            this.$emit('typing-message', this.$refs.roomTextarea.message)
+            const selectionStart = this.$refs.roomTextarea.$refs.roomTextarea.selectionStart
+            if (
+                this.room.roomId < 0 &&
+                this.$refs.roomTextarea.message.slice(selectionStart - 1, selectionStart) === '@'
+            ) {
                 this.useAtKey = true
                 this.isQuickAtOn = true
                 this.$nextTick(() => this.$refs.quickat.focus())
             }
         },
         resizeTextarea() {
-            const el = this.$refs['roomTextarea']
+            const el = this.$refs.roomTextarea.$refs.roomTextarea
 
             if (!el) return
 
@@ -1323,7 +1380,7 @@ export default {
             this.resetMediaFile()
 
             const file = files[0]
-            const fileURL = URL.createObjectURL(file)
+            const fileURL = file.path ? file.path : URL.createObjectURL(file)
             const blobFile = await fetch(fileURL).then((res) => res.blob())
             const typeIndex = file.name.lastIndexOf('.')
 
@@ -1346,7 +1403,7 @@ export default {
                 this.videoFile = fileURL
                 setTimeout(() => this.onMediaLoad(), 50)
             } else {
-                this.message = file.name
+                this.$refs.roomTextarea.message = file.name
             }
 
             setTimeout(() => (this.fileDialog = false), 500)
@@ -1376,14 +1433,14 @@ export default {
             this.$emit('open-file', { message, action, room: this.room })
         },
         textareaActionHandler() {
-            this.$emit('textarea-action-handler', this.message)
+            this.$emit('textarea-action-handler', this.$refs.roomTextarea.message)
         },
-        msgctx(message) {
+        msgctx(e, message) {
             const sect = window.getSelection().toString()
-            ipc.popupMessageMenu(this.room, message, sect, this.$route.name === 'history-page')
+            ipc.popupMessageMenu(e, this.room, message, sect, this.$route.name === 'history-page')
         },
-        avatarCtx(message) {
-            ipc.popupAvatarMenu(message, this.room)
+        avatarCtx(message, e) {
+            ipc.popupAvatarMenu(message, this.room, e)
         },
         containerScroll(e) {
             if (this.onScrolling) {
@@ -1471,12 +1528,22 @@ export default {
             )
         },
         textctx: ipc.popupTextAreaMenu,
-        roomMenu() {
-            ipc.popupRoomMenu(this.room.roomId)
+        roomMenu(e) {
+            ipc.popupRoomMenu(this.room.roomId, e)
+        },
+        stickersMenu(e) {
+            ipc.popupStickerMenu(e, false)
         },
         async updateGroupMembers() {
             const { roomId } = this.room
             if (roomId < 0) {
+                const group = await ipc.getGroup(-roomId)
+                if (!group) {
+                    // 退了的群获取不到成员数和成员列表
+                    this.membersCount = 0
+                    return
+                }
+                this.membersCount = group.member_count
                 const groupMembers = await ipc.getGroupMembers(-roomId)
                 if (roomId !== this.room.roomId) return
                 const self = groupMembers.find((member) => member.user_id === this.currentUserId)
@@ -1488,7 +1555,7 @@ export default {
                     })
                 }
                 this.groupMembers = groupMembers
-            }
+            } else this.membersCount = 0
         },
         updateMouseSelectAreaStyleImmediately() {
             const el = this.$refs.mouseSelectArea

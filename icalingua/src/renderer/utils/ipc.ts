@@ -112,32 +112,32 @@ const ipc = {
     updatePriority(level: 1 | 2 | 3 | 4 | 5) {
         ipcRenderer.send('updatePriority', level)
     },
-    popupRoomMenu(roomId: number) {
-        ipcRenderer.send('popupRoomMenu', roomId)
+    popupRoomMenu(roomId: number, e) {
+        ipcRenderer.send('popupRoomMenu', roomId, { x: e.screenX, y: e.screenY })
     },
-    popupAvatarMenu(message: Message, room: Room) {
-        ipcRenderer.send('popupAvatarMenu', message, room)
+    popupAvatarMenu(message: Message, room: Room, e) {
+        ipcRenderer.send('popupAvatarMenu', message, room, { x: e.screenX, y: e.screenY })
     },
-    popupTextAreaMenu() {
-        ipcRenderer.send('popupTextAreaMenu')
+    popupTextAreaMenu(e) {
+        ipcRenderer.send('popupTextAreaMenu', { text: e.target.value, x: e.screenX, y: e.screenY })
     },
-    popupStickerMenu() {
-        ipcRenderer.send('popupStickerMenu')
+    popupStickerMenu(e, closePanel: boolean = true) {
+        ipcRenderer.send('popupStickerMenu', closePanel, { x: e.screenX, y: e.screenY })
     },
-    popupStickerItemMenu(itemName: string) {
-        ipcRenderer.send('popupStickerItemMenu', itemName)
+    popupStickerItemMenu(itemName: string, itemList: Array<string>, e) {
+        ipcRenderer.send('popupStickerItemMenu', itemName, itemList, { x: e.screenX, y: e.screenY })
     },
-    popupStickerDirMenu(dirName: string) {
-        ipcRenderer.send('popupStickerDirMenu', dirName)
+    popupStickerDirMenu(dirName: string, e) {
+        ipcRenderer.send('popupStickerDirMenu', dirName, { x: e.screenX, y: e.screenY })
     },
-    popupContactMenu(remark?: string, name?: string, displayId?: number, group?: SearchableGroup) {
-        ipcRenderer.send('popupContactMenu', remark, name, displayId, group)
+    popupContactMenu(e, remark?: string, name?: string, displayId?: number, group?: SearchableGroup) {
+        ipcRenderer.send('popupContactMenu', { x: e.screenX, y: e.screenY }, remark, name, displayId, group)
     },
-    popupGroupMemberMenu(remark?: string, name?: string, displayId?: number, group?: SearchableGroup) {
-        ipcRenderer.send('popupGroupMemberMenu', remark, name, displayId, group)
+    popupGroupMemberMenu(e, remark?: string, name?: string, displayId?: number, group?: SearchableGroup) {
+        ipcRenderer.send('popupGroupMemberMenu', { x: e.screenX, y: e.screenY }, remark, name, displayId, group)
     },
-    popupMessageMenu(room: Room, message: Message, sect?: string, history?: boolean) {
-        ipcRenderer.send('popupMessageMenu', room, message, sect, history)
+    popupMessageMenu(e, room: Room, message: Message, sect?: string, history?: boolean) {
+        ipcRenderer.send('popupMessageMenu', { x: e.screenX, y: e.screenY }, room, message, sect, history)
     },
     addRoom(room: Room) {
         ipcRenderer.send('addRoom', room)
@@ -225,6 +225,9 @@ const ipc = {
     },
     setLockPassword(password: string) {
         ipcRenderer.send('setLockPassword', password)
+    },
+    requestOnlineData() {
+        ipcRenderer.send('requestOnlineData')
     },
 }
 export default ipc

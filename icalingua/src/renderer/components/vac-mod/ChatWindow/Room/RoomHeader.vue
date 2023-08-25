@@ -32,7 +32,7 @@
                     <slot name="room-header-info" v-bind="{ room, typingUsers, roomInfo }">
                         <div class="vac-text-ellipsis">
                             <div class="vac-room-name vac-text-ellipsis">
-                                {{ room.roomName }}
+                                {{ roomName }}
                             </div>
                             <div
                                 v-if="membersCount"
@@ -45,7 +45,7 @@
                     </slot>
                 </div>
                 <slot v-if="room.roomId" name="room-options">
-                    <div class="vac-svg-button vac-room-options" @click="$emit('room-menu')">
+                    <div class="vac-svg-button vac-room-options" @click="$emit('room-menu', $event)">
                         <slot name="menu-icon">
                             <svg-icon name="menu" />
                         </slot>
@@ -74,6 +74,7 @@ import SvgIcon from '../../components/SvgIcon'
 
 import typingText from '../../utils/typingText'
 import getAvatarUrl from '../../../../../utils/getAvatarUrl'
+import removeGroupNameEmotes from '../../../../../utils/removeGroupNameEmotes'
 
 export default {
     name: 'RoomHeader',
@@ -96,6 +97,7 @@ export default {
         room: { type: Object, required: true },
         membersCount: { type: Number, default: 0 },
         showSinglePanel: { type: Boolean, require: false, default: false },
+        removeEmotes: { type: Boolean, require: false, default: false },
     },
 
     data() {
@@ -110,6 +112,9 @@ export default {
         },
         roomAvatar() {
             return getAvatarUrl(this.room.roomId)
+        },
+        roomName() {
+            return this.removeEmotes ? removeGroupNameEmotes(this.room.roomName) : this.room.roomName
         },
     },
 

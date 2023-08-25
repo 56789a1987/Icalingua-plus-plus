@@ -8,7 +8,7 @@
                 <div class="contact-entry-right">
                     <div class="contact-entry-flex contact-entry-l1">
                         <div class="contact-entry-name">
-                            {{ remark }}
+                            {{ removeEmotes ? removeGroupNameEmotes(remark) : remark }}
                             <span class="contact-entry-rawname" v-show="name && name !== remark"> ({{ name }}) </span>
                         </div>
                     </div>
@@ -26,24 +26,26 @@
 <script>
 import ipc from '../utils/ipc'
 import getAvatarUrl from '../../utils/getAvatarUrl'
+import removeGroupNameEmotes from '../../utils/removeGroupNameEmotes'
 
 export default {
     name: 'ContactEntry',
-    props: ['id', 'name', 'remark', 'group', 'type'],
+    props: ['id', 'name', 'remark', 'group', 'type', 'removeEmotes'],
     computed: {
         displayId() {
             return Math.abs(this.id)
         },
     },
     methods: {
-        ctx() {
+        ctx(e) {
             if (this.type === 'groupmember') {
-                ipc.popupGroupMemberMenu(this.remark, this.name, this.displayId, this.group)
+                ipc.popupGroupMemberMenu(e, this.remark, this.name, this.displayId, this.group)
             } else {
-                ipc.popupContactMenu(this.remark, this.name, this.displayId, this.group)
+                ipc.popupContactMenu(e, this.remark, this.name, this.displayId, this.group)
             }
         },
         getAvatarUrl,
+        removeGroupNameEmotes,
     },
 }
 </script>

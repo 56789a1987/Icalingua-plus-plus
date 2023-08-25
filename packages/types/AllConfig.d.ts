@@ -42,6 +42,9 @@ type AllConfig = {
     lockPassword: string
     useSinglePanel: boolean
     disableAtAll: boolean
+    removeGroupNameEmotes: boolean
+    usePanguJsSend: boolean
+    usePanguJsRecv: boolean
 }
 
 export default AllConfig

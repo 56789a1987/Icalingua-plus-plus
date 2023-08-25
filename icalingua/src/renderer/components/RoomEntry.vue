@@ -1,5 +1,5 @@
 <template>
-    <a @click="$emit('click')" @click.right="$emit('contextmenu')">
+    <a @click="$emit('click')" @click.right="$emit('contextmenu', $event)">
         <div class="root" :class="{ selected }">
             <div class="entry">
                 <div class="left">
@@ -16,7 +16,7 @@
                 <div class="right" :title="desc">
                     <div class="flex l1" :class="{ withoutdesc: !desc }">
                         <div class="name">
-                            {{ room.roomName }}
+                            {{ roomName }}
                         </div>
                         <div class="icon" v-show="room.priority < priority">
                             <i class="el-icon-close-notification"></i>
@@ -44,6 +44,8 @@
 
 <script>
 import getAvatarUrl from '../../utils/getAvatarUrl'
+import removeGroupNameEmotes from '../../utils/removeGroupNameEmotes'
+import { spacingNotification } from '../../utils/panguSpacing'
 
 export default {
     name: 'RoomEntry',
@@ -51,6 +53,8 @@ export default {
         room: Object,
         selected: Boolean,
         priority: Number,
+        removeEmotes: Boolean,
+        usePanguJs: Boolean,
     },
     computed: {
         desc() {
@@ -58,7 +62,8 @@ export default {
             if (this.room.roomId < 0 && this.room.lastMessage.username) {
                 d += this.room.lastMessage.username + ': '
             }
-            d += this.room.lastMessage.content
+            const content = this.room.lastMessage.content
+            d += this.usePanguJs ? spacingNotification(content) : content
             return d
         },
         timestamp() {
@@ -73,6 +78,9 @@ export default {
         },
         roomAvatar() {
             return getAvatarUrl(this.room.roomId)
+        },
+        roomName() {
+            return this.removeEmotes ? removeGroupNameEmotes(this.room.roomName) : this.room.roomName
         },
     },
 }

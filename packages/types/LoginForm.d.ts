@@ -13,6 +13,9 @@ type LoginForm = {
     sqlUsername?: string
     sqlPassword?: string
     sqlDatabase?: string
+    signAPIAddress?: string
+    signAPIKey?: string
+    forceAlgoT544?: boolean
 }
 
 export default LoginForm

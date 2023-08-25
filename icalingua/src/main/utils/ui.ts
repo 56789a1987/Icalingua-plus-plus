@@ -8,6 +8,7 @@ import { updateAppMenu } from '../ipc/menuManager'
 import { getConfig } from './configManager'
 import { updateTrayIcon } from './trayManager'
 import { sendToMainWindow, sendToRequestWindow } from './windowManager'
+import removeGroupNameEmotes from '../../utils/removeGroupNameEmotes'
 
 let selectedRoomId = 0
 let selectedRoomName = ''
@@ -77,6 +78,7 @@ export default {
     },
     messageSuccess(string: string) {
         if (getConfig().silentFetchHistory && (string.endsWith(' 条消息') || string === '开始拉取消息')) return
+        if (getConfig().removeGroupNameEmotes && string.endsWith(' 条消息')) string = removeGroupNameEmotes(string)
         sendToMainWindow('messageSuccess', string)
     },
     updateRoom(room: Room) {
@@ -86,6 +88,7 @@ export default {
         sendToMainWindow('setShutUp', isShutUp)
     },
     addMessage(roomId: number, message: Message) {
+        if (roomId != selectedRoomId) return
         sendToMainWindow('addMessage', { roomId, message })
     },
     chroom(roomId: number) {
@@ -154,6 +157,9 @@ export default {
     addMessageText(text: string) {
         sendToMainWindow('addMessageText', text)
     },
+    setMessageText(text: string) {
+        sendToMainWindow('setMessageText', text)
+    },
     getSelectedRoomId: () => selectedRoomId,
     getSelectedRoomName: () => selectedRoomName,
     sendAddRequest(data: any) {
@@ -192,5 +198,11 @@ export default {
     },
     useSinglePanel(enable: boolean) {
         sendToMainWindow('useSinglePanel', enable)
+    },
+    setRemoveGroupNameEmotes(enable: boolean) {
+        sendToMainWindow('setRemoveGroupNameEmotes', enable)
+    },
+    setUsePanguJsRecv(enable: boolean) {
+        sendToMainWindow('setUsePanguJsRecv', enable)
     },
 }

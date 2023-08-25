@@ -1,6 +1,6 @@
 import { BrowserWindow, globalShortcut, nativeTheme, shell, screen, ipcMain } from 'electron'
 import { clearCurrentRoomUnread, getCookies, sendOnlineData } from '../ipc/botAndStorage'
-import { getConfig } from './configManager'
+import { getConfig, saveConfigFile } from './configManager'
 import getWinUrl from '../../utils/getWinUrl'
 import { updateTrayIcon, updateTrayMenu } from './trayManager'
 import path from 'path'
@@ -8,6 +8,8 @@ import ui from './ui'
 import argv from './argv'
 import { newIcalinguaWindow } from '../../utils/IcalinguaWindow'
 import getStaticPath from '../../utils/getStaticPath'
+import md5 from 'md5'
+import crypto from 'crypto'
 
 let loginWindow: BrowserWindow
 let mainWindow: BrowserWindow
@@ -15,6 +17,17 @@ let requestWindow: BrowserWindow
 let unlockWindow: BrowserWindow
 let isLocked: boolean = false
 let unlockCallback: Function
+
+async function loadDevtools(window: BrowserWindow) {
+    try {
+        // require.resolve 会给出 vue-devtools/lib/index.js 的路径
+        const moduleFile = path.resolve(require.resolve('vue-devtools'))
+        const extensionDir = path.join(path.dirname(path.dirname(moduleFile)), 'vender')
+        await window.webContents.session.loadExtension(extensionDir)
+    } catch (e) {
+        console.error('Failed to load vue-devtools extension.', e)
+    }
+}
 
 export const isAppLocked = () => isLocked
 export const loadMainWindow = () => {
@@ -54,7 +67,7 @@ export const loadMainWindow = () => {
     })
 
     if (process.env.NODE_ENV === 'development') {
-        mainWindow.webContents.session.loadExtension(path.join(process.cwd(), 'node_modules/vue-devtools/vender/'))
+        loadDevtools(mainWindow)
     }
 
     setTimeout(
@@ -167,7 +180,7 @@ export const showLoginWindow = (isConfiguringBridge = false, disableIdLogin = fa
         })
 
         if (process.env.NODE_ENV === 'development') {
-            loginWindow.webContents.session.loadExtension(path.join(process.cwd(), 'node_modules/vue-devtools/vender/'))
+            loadDevtools(loginWindow)
             loginWindow.minimize()
         }
 
@@ -193,9 +206,7 @@ export const showRequestWindow = () => {
         })
 
         if (process.env.NODE_ENV === 'development') {
-            requestWindow.webContents.session.loadExtension(
-                path.join(process.cwd(), 'node_modules/vue-devtools/vender/'),
-            )
+            loadDevtools(requestWindow)
         }
 
         requestWindow.loadURL(getWinUrl() + '#/friendRequest')
@@ -311,7 +322,17 @@ ipcMain.on('lock', () => {
 })
 ipcMain.on('unlock', (_, password: string) => {
     if (!unlockWindow) return
-    if (password === getConfig().lockPassword) {
+    let lockPassword = getConfig().lockPassword
+    if (!(lockPassword.includes('|') && lockPassword.length === 65)) {
+        // 升级锁定密码
+        const salt = crypto.randomBytes(16).toString('hex')
+        lockPassword = md5(lockPassword + salt) + '|' + salt
+        getConfig().lockPassword = lockPassword
+        saveConfigFile()
+    }
+    const [hash, salt] = lockPassword.split('|')
+    const hash2 = md5(password + salt)
+    if (hash === hash2) {
         unlockWindow.webContents.send('unlock-succeed')
 
         setTimeout(() => {

@@ -66,6 +66,7 @@ import createProcessMessage from '../utils/processMessage'
 import sleep from '../utils/sleep'
 import ChatGroup from '@icalingua/types/ChatGroup'
 import SpecialFeature from '@icalingua/types/SpecialFeature'
+import formatDuration from '../utils/formatDuration'
 
 let bot: Client
 let storage: StorageProvider
@@ -134,6 +135,7 @@ const eventHandlers = {
                     ? (<GroupMessageEventData>data).anonymous.flag
                     : null,
             bubble_id: data.bubble_id,
+            subid: data.sender['subid'],
         }
 
         let room = await storage.getRoom(roomId)
@@ -218,7 +220,7 @@ const eventHandlers = {
         storage.addMessage(roomId, message)
         if (config.custom && data.post_type === 'message') {
             try {
-                require('../custom').onMessage(data, bot)
+                require('../custom').onMessage(data, bot, { storage, ui: clients })
             } catch (e) {
                 clients.messageError('自定义插件出错')
                 console.error(e)
@@ -451,7 +453,7 @@ const eventHandlers = {
         if (muteAll && data.duration > 0) content += '开启了全员禁言'
         else if (muteAll) content += '关闭了全员禁言'
         else if (data.duration === 0) content += `将 ${mutedUserName} 解除禁言`
-        else content += `禁言 ${mutedUserName} ${data.duration / 60} 分钟`
+        else content += `禁言 ${mutedUserName} ${formatDuration(data.duration)}`
         const message: Message = {
             _id: `mute-${now.getTime()}-${data.user_id}-${data.operator_id}`,
             content,
@@ -1100,7 +1102,7 @@ const adapter = {
                 replyUin = parsed.readUInt32BE(roomId < 0 ? 4 : 0)
             }
 
-            if (roomId < 0)
+            if (roomId < 0 && replyUin !== 80000000)
                 chain.push(
                     {
                         type: 'at',
@@ -1287,7 +1289,7 @@ const adapter = {
             if (idReg && idReg.length >= 3 && content === idReg[0]) {
                 const qlottie = idReg[1]
                 const faceId = idReg[2]
-                chain.length = 0
+                chain.length = chain[0].type === 'anonymous' ? 1 : 0
                 chain.push({
                     type: 'face',
                     data: {
@@ -1335,6 +1337,9 @@ const adapter = {
                 platform: Number(form.protocol),
                 ignore_self: false,
                 brief: true,
+                sign_api_addr: form.signAPIAddress,
+                sign_api_key: form.signAPIKey,
+                force_algo_T544: form.forceAlgoT544,
             })
             _sendPrivateMsg = bot.sendPrivateMsg
             bot.sendPrivateMsg = async (user_id: number, message: MessageElem[] | string, auto_escape?: boolean) => {
@@ -1481,18 +1486,35 @@ const adapter = {
         const messages = []
         for (let i = 0; i < history.data.length; i++) {
             const data = history.data[i]
-            const message: Message = {
-                senderId: data.user_id,
-                username: data.nickname,
-                content: '',
-                timestamp: formatDate('hh:mm:ss', new Date(data.time * 1000)),
-                date: formatDate('yyyy/MM/dd', new Date(data.time * 1000)),
-                _id: String(data.group_id || -1) + '|' + data.seq,
-                time: data.time * 1000,
-                files: [],
-                bubble_id: data.bubble_id,
+            data.time = Number(data.time)
+            let message: Message
+            try {
+                message = {
+                    senderId: data.user_id,
+                    username: data.nickname,
+                    content: '',
+                    timestamp: formatDate('hh:mm:ss', new Date(data.time * 1000)),
+                    date: formatDate('yyyy/MM/dd', new Date(data.time * 1000)),
+                    _id: String(data.group_id || -1) + '|' + data.seq,
+                    time: data.time * 1000,
+                    files: [],
+                    bubble_id: data.bubble_id,
+                }
+                await processMessage(data.message, message, {})
+            } catch (e) {
+                message = {
+                    senderId: 0,
+                    username: '错误',
+                    content: JSON.stringify(data),
+                    code: JSON.stringify(e),
+                    timestamp: formatDate('hh:mm:ss'),
+                    date: formatDate('yyyy/MM/dd'),
+                    _id: Date.now(),
+                    time: Date.now(),
+                    files: [],
+                }
+                console.error(e)
             }
-            await processMessage(data.message, message, {})
             messages.push(message)
         }
         resolve(messages)
@@ -1611,7 +1633,7 @@ const adapter = {
             const history = await bot.getChatHistory(messageId)
             if (history.error) {
                 console.log(history.error)
-                clients.messageError('错误：' + history.error.message)
+                if (history.error.message !== 'msg not exists') clients.messageError('错误：' + history.error.message)
                 break
             }
             const newMsgs: Message[] = []
@@ -1707,7 +1729,7 @@ const adapter = {
         clients.setAllChatGroups(await storage.getAllChatGroups())
     },
     async getRoamingStamp(no_cache: boolean | undefined, cb) {
-        const roaming_stamp = (await bot.getRoamingStamp(no_cache)).data
+        const roaming_stamp = (await bot.getRoamingStamp(no_cache)).data || []
         let stamps = []
 
         for (let index: number = roaming_stamp.length - 1; index >= 0; index--) {
@@ -1778,8 +1800,11 @@ const adapter = {
             }
             return imei + calcSP(imei)
         }
+        const imei = _genIMEI()
+        const md5 = (data: string) => crypto.createHash('md5').update(data).digest()
         const device = `{
         "--begin--":    "该设备文件为尝试解决${username}的风控时随机生成。",
+        "--version--":  2,
         "product":      "M2012K11AC",
         "device":       "alioth",
         "board":        "alioth",
@@ -1787,14 +1812,13 @@ const adapter = {
         "model":        "ILPP ${randomString(4).toUpperCase()}",
         "wifi_ssid":    "Redmi-${randomString(7).toUpperCase()}",
         "bootloader":   "U-boot",
-        "android_id":   "${randomString(4)}.${randomString(6, true)}.${randomString(4, true)}",
+        "android_ver":  "${randomString(4)}.${randomString(6, true)}.${randomString(4, true)}",
         "boot_id":      "${crypto.randomUUID()}",
         "proc_version": "Linux version 4.19.157-${randomString(13)} (android-build@xiaomi.com)",
-        "mac_address":  "2B:${randomString(2).toUpperCase()}:${randomString(2).toUpperCase()}:${randomString(
-            2,
-        ).toUpperCase()}:${randomString(2).toUpperCase()}:${randomString(2).toUpperCase()}",
+        "mac_address":  "02:00:00:00:00:00",
         "ip_address":   "192.168.${randomString(2, true)}.${randomString(2, true)}",
-        "imei":         "${_genIMEI()}",
+        "imei":         "${imei}",
+        "android_id":   "${md5(imei).toString('hex').slice(0, 16)}",
         "incremental":  "${randomString(10, true)}",
         "--end--":      "修改后可能需要重新验证设备。"
     }`

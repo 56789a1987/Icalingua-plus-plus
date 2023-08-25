@@ -17,6 +17,7 @@ import errorHandler from '../utils/errorHandler'
 import getFriends from '../utils/getFriends'
 import * as themes from '../utils/themes'
 import ChatGroup from '@icalingua/types/ChatGroup'
+import { spacingSendMessage } from '../../utils/panguSpacing'
 
 let adapter: Adapter
 if (getConfig().adapter === 'oicq') adapter = oicqAdapter
@@ -65,6 +66,7 @@ export const {
     sendPacket,
     sendGroupSign,
     getDisabledFeatures,
+    sendGroupPoke,
 } = adapter
 export const fetchLatestHistory = (roomId: number) => {
     let buffer: Buffer
@@ -131,6 +133,9 @@ ipcMain.handle('getFriendsAndGroups', async () => {
 })
 ipcMain.on('sendMessage', (_, data) => {
     data.at = atCache.get()
+    if (getConfig().usePanguJsSend) {
+        data.content = spacingSendMessage(data.content, data.at)
+    }
     sendMessage(data)
     atCache.clear()
 })
@@ -196,8 +201,16 @@ ipcMain.handle('getSystemMsg', async () => await adapter.getSystemMsg())
 ipcMain.on('handleRequest', (_, type: 'friend' | 'group', flag: string, accept: boolean = true) =>
     adapter.handleRequest(type, flag, accept),
 )
-ipcMain.handle('getAccount', adapter.getAccount)
+ipcMain.handle('getAccount', () => {
+    const localAccount = getConfig().account
+    const adapterAccount = adapter.getAccount()
+    return {
+        ...localAccount,
+        ...adapterAccount,
+    }
+})
 ipcMain.handle('getGroup', (_, gin: number) => adapter.getGroup(gin))
 ipcMain.handle('getGroupMembers', (_, gin: number) => adapter.getGroupMembers(gin))
 ipcMain.handle('pushAtCache', (_, at: AtCacheItem) => atCache.push(at))
 ipcMain.on('ignoreChat', (_, data: IgnoreChatInfo) => adapter.ignoreChat(data))
+ipcMain.on('requestOnlineData', adapter.sendOnlineData)

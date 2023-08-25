@@ -62,6 +62,8 @@
                     :allRooms="rooms"
                     :disableChatGroups="disableChatGroups"
                     :roomPanelAvatarOnly="roomPanelAvatarOnly"
+                    :removeGroupNameEmotes="removeGroupNameEmotes"
+                    :usePanguJs="usePanguJsRecv"
                     @chroom="chroom"
                     @show-contacts="contactsShown = true"
                     @update-sorted-rooms="(sortedRooms) => (this.sortedRooms = sortedRooms)"
@@ -100,13 +102,14 @@
                     :show-footer="!isShutUp"
                     :loading-rooms="false"
                     :text-formatting="true"
-                    :members-count="membersCount"
                     :linkify="linkify"
                     :account="account"
                     :username="username"
                     :last-unread-count="lastUnreadCount"
                     :last-unread-at="lastUnreadAt"
                     :showSinglePanel="showSinglePanel"
+                    :removeHeaderEmotes="selectedRoom.roomId < 0 && removeGroupNameEmotes"
+                    :usePanguJsRecv="usePanguJsRecv"
                     @clear-last-unread-count="clearLastUnreadCount"
                     @clear-last-unread-at="clearLastUnreadAt"
                     @send-message="sendMessage"
@@ -178,10 +181,10 @@
             </span>
         </el-dialog>
         <el-dialog title="联系人" :visible.sync="contactsShown" top="5vh" class="dialog">
-            <TheContactsPanel @dblclick="startChat" />
+            <TheContactsPanel @dblclick="startChat" :removeGroupNameEmotes="removeGroupNameEmotes" />
         </el-dialog>
         <el-dialog title="转发到..." :visible.sync="forwardShown" top="5vh" class="dialog">
-            <TheContactsPanel @click="sendForward" />
+            <TheContactsPanel @click="sendForward" :removeGroupNameEmotes="removeGroupNameEmotes" />
         </el-dialog>
         <el-dialog title="群成员" :visible.sync="groupmemberShown" top="5vh" class="dialog">
             <TheGroupMemberPanel
@@ -192,6 +195,31 @@
             />
         </el-dialog>
         <DialogAskCheckUpdate :show.sync="dialogAskCheckUpdateVisible" />
+        <el-dialog title="发送骰子" :visible.sync="sendDiceShown">
+            <div class="random-select">
+                <el-button @click="sendDice(1)">1</el-button>
+                <el-button @click="sendDice(2)">2</el-button>
+                <el-button @click="sendDice(3)">3</el-button>
+                <el-button @click="sendDice(4)">4</el-button>
+                <el-button @click="sendDice(5)">5</el-button>
+                <el-button @click="sendDice(6)">6</el-button>
+            </div>
+            <span slot="footer">
+                <el-button @click="sendDiceShown = false">取消</el-button>
+                <el-button type="primary" @click="sendDice(0)">随机</el-button>
+            </span>
+        </el-dialog>
+        <el-dialog title="发送猜拳" :visible.sync="sendRpsShown">
+            <div class="random-select">
+                <el-button @click="sendRps(1)">石头</el-button>
+                <el-button @click="sendRps(2)">剪刀</el-button>
+                <el-button @click="sendRps(3)">布</el-button>
+            </div>
+            <span slot="footer">
+                <el-button @click="sendRpsShown = false">取消</el-button>
+                <el-button type="primary" @click="sendRps(0)">随机</el-button>
+            </span>
+        </el-dialog>
     </div>
 </template>
 
@@ -210,6 +238,7 @@ import ProgressBar from '../components/ProgressBar.vue'
 import ipc from '../utils/ipc'
 import getAvatarUrl from '../../utils/getAvatarUrl'
 import createRoom from '../../utils/createRoom'
+import removeGroupNameEmotes from '../../utils/removeGroupNameEmotes'
 import fs from 'fs'
 import * as themes from '../utils/themes'
 
@@ -245,7 +274,6 @@ export default {
             sysInfo: '',
             historyCount: 0,
             dialogAskCheckUpdateVisible: false,
-            membersCount: 0,
             contactsShown: false,
             groupmemberShown: false,
             groupmemberPanelGin: 0,
@@ -253,6 +281,7 @@ export default {
             roomPanelAvatarOnly: false,
             roomPanelWidth: undefined,
             forwardShown: false,
+            forwardMulti: false,
             lastUnreadCount: 0,
             lastUnreadCheck: 0,
             lastUnreadAt: false,
@@ -267,21 +296,27 @@ export default {
             disableChatGroupsRedPoint: false,
             useSinglePanel: false,
             showSinglePanel: false,
+            removeGroupNameEmotes: false,
+            usePanguJsRecv: false,
             showPanel: 'contact', // 'chat' or 'contact', 只有showSinglePanel为true有效
             notifyProgresses: new Map(),
+            sendDiceShown: false,
+            sendRpsShown: false,
         }
     },
     async created() {
         //region set status
         const STORE_PATH = await ipc.getStorePath()
         const ver = await ipc.getVersion()
-        this.linkify = await ipc.getlinkifySetting()
-        this.disableChatGroups = await ipc.getDisableChatGroupsSetting()
-        this.disableChatGroupsRedPoint = (await ipc.getSettings()).disableChatGroupsRedPoint
-        const roomPanelLastSetting = await ipc.getRoomPanelSetting()
-        this.roomPanelAvatarOnly = roomPanelLastSetting.roomPanelAvatarOnly
-        this.roomPanelWidth = roomPanelLastSetting.roomPanelWidth
-        this.useSinglePanel = (await ipc.getSettings()).useSinglePanel
+        const settings = await ipc.getSettings()
+        this.linkify = settings.linkify
+        this.disableChatGroups = settings.disableChatGroups
+        this.disableChatGroupsRedPoint = settings.disableChatGroupsRedPoint
+        this.roomPanelAvatarOnly = settings.roomPanelAvatarOnly
+        this.roomPanelWidth = settings.roomPanelWidth
+        this.useSinglePanel = settings.useSinglePanel
+        this.removeGroupNameEmotes = settings.removeGroupNameEmotes
+        this.usePanguJsRecv = settings.usePanguJsRecv
         //endregion
         //region listener
         document.addEventListener('dragover', (e) => {
@@ -479,59 +514,42 @@ export default {
                 fs.rmdir(path.join(STORE_PATH, 'stickers', dirname), { recursive: true }, () => this.$message('删除成功'))
             })
         })
-        ipcRenderer.on('moveSticker', (_, filename) => {
-            this.$prompt('请输入 Sticker 分类目录名称，若目录不存在则会自动创建', '提示', {
-                confirmButtonText: '确定',
-                cancelButtonText: '取消',
-            }).then(({ value }) => {
-                if (!value) {
-                    this.$message.error('请输入目录名称')
-                    return
+        ipcRenderer.on('moveSticker', async (_, filename) => {
+            /** @type {string} */
+            let value
+            try {
+                ({ value } = await this.$prompt('若目录不存在则会自动创建，留空则移动到默认分类', '输入 Sticker 分类目录名称', {
+                    confirmButtonText: '确定',
+                    cancelButtonText: '取消',
+                }))
+                value = value ? value.trim() : 'Default'
+            } catch (action) {
+                return
+            }
+            if (value == 'Recent') {
+                this.$message.error('请勿使用这个分类名称')
+                return
+            }
+            const defaultDir = path.join(STORE_PATH, 'stickers')
+            const newDir = value == 'Default' ? defaultDir : path.join(defaultDir, value)
+            try {
+                if (!fs.existsSync(newDir)) {
+                    await fs.promises.mkdir(newDir)
                 }
-                if (value !== 'Default'){
-                    const newPath = path.join(STORE_PATH, 'stickers', value)
-                    if (!fs.existsSync(newPath)) {
-                        fs.mkdirSync(newPath)
-                    }
-                    fs.rename(filename, path.join(newPath, path.basename(filename)), () => this.$message('移动成功'))
-                } else {
-                    fs.rename(filename, path.join(STORE_PATH, 'stickers', path.basename(filename)), () => this.$message('移动成功'))
-                }
-            })
+                await fs.promises.rename(filename, path.join(newDir, path.basename(filename)))
+            } catch (err) {
+                console.error('Failed to move sticker', filename, 'to', newDir)
+                console.error(err)
+                this.$message.error('移动失败')
+                return
+            }
+            this.$message.success('移动成功')
         })
         ipcRenderer.on('sendDice', (_) => {
-            this.$prompt('请输入骰子点数，留空随机', '提示', {
-                confirmButtonText: '确定',
-                cancelButtonText: '取消',
-                inputType: 'number',
-                inputPattern: /^[1-6]$|^$/,
-            }).then(({ value }) => {
-                if (!value) {
-                    value = (Math.floor(Math.random() * 6) + 1).toString()
-                }
-                this.sendMessage({
-                    content: value,
-                    room: this.selectedRoom,
-                    messageType: 'dice',
-                })
-            })
+            this.sendDiceShown = true
         })
         ipcRenderer.on('sendRps', (_) => {
-            this.$prompt('请输入对应数字，1石头、2剪刀、3布、留空随机', '提示', {
-                confirmButtonText: '确定',
-                cancelButtonText: '取消',
-                inputType: 'number',
-                inputPattern: /^[1-3]$|^$/,
-            }).then(({ value }) => {
-                if (!value) {
-                    value = (Math.floor(Math.random() * 3) + 1).toString()
-                }
-                this.sendMessage({
-                    content: value,
-                    room: this.selectedRoom,
-                    messageType: 'rps',
-                })
-            })
+            this.sendRpsShown = true
         })
         ipcRenderer.on('sendPoke', (_) => {
             this.$prompt('请输入戳一戳类型，0-回戳、1-戳一戳、2-比心、3-点赞、4-心碎、5-666、6-放大招', '提示', {
@@ -563,9 +581,14 @@ export default {
         })
         ipcRenderer.on('addMessage', (_, {roomId, message}) => {
             if (roomId !== this.selectedRoomId) return
+            const index = this.messages.findIndex((e) => e._id === message._id)
+            if (index !== -1) {
+                console.warning(`[WARN] Duplicated message ID ${message._id}`, message, this.messages[index])
+                return
+            }
             this.messages = [...this.messages, message]
             if (this.lastUnreadCount >= 10 && !message.system) this.lastUnreadCount++
-            if (message.at) this.lastUnreadAt = true
+            if (message.at && message.senderId != this.account) this.lastUnreadAt = true
         })
         ipcRenderer.on('deleteMessage', (_, messageId) => {
             const message = this.messages.find((e) => e._id === messageId)
@@ -651,6 +674,15 @@ Chromium ${process.versions.chrome}` : ''
             this.useSinglePanel = b
             this.handleResize({ target: { innerWidth: window.innerWidth } })
         })
+        ipcRenderer.on('setRemoveGroupNameEmotes', (_, b) => {
+            this.removeGroupNameEmotes = b
+        })
+        ipcRenderer.on('setUsePanguJsRecv', (_, b) => {
+            this.usePanguJsRecv = b
+        })
+
+        ipc.setSelectedRoom(0, '')
+        ipc.requestOnlineData()
 
         window.addEventListener("resize", this.handleResize)
         this.handleResize({ target: { innerWidth: window.innerWidth } })
@@ -667,10 +699,6 @@ Chromium ${process.versions.chrome}` : ''
             if (!roomId) roomId = room.roomId
             if (file) {
                 if (file.type.includes('image')) {
-                    if (file.size >= 104857600) {
-                        this.$message.error('图片过大，无法发送')
-                        return
-                    }
                     if (file.size >= 10485760) {
                         this.$message.warning('图片较大，发送可能失败，软件可能卡死')
                     }
@@ -682,10 +710,6 @@ Chromium ${process.versions.chrome}` : ''
                     imgpath = imgpath || `send_https://gchat.qpic.cn/gchatpic_new/0/0-0-${imgHashStr}/0`
                     file = null
                 } else if (file.type.startsWith('audio')) {
-                    if (file.size >= 104857600) {
-                        this.$message.error('语音过大，无法发送')
-                        return
-                    }
                     if (file.size >= 10485760) {
                         this.$message.warning('语音较大，发送可能失败，软件可能卡死')
                     }
@@ -721,11 +745,16 @@ Chromium ${process.versions.chrome}` : ''
                 this.messages = []
             }
             const _roomId = this.selectedRoom.roomId
-            const msgs2add = await ipc.fetchMessage(_roomId, this.messages.length)
+            const messagesLength = this.messages.length
+            const msgs2add = await ipc.fetchMessage(_roomId, messagesLength)
             if (number) {
                 while (msgs2add.filter((e) => !e.system).length < number) {
-                    const msgs = await ipc.fetchMessage(_roomId, this.messages.length + msgs2add.length)
+                    const msgs = await ipc.fetchMessage(_roomId, messagesLength + msgs2add.length)
                     msgs2add.unshift(...msgs)
+                    if (!msgs.length) {
+                        this.$message.error('Message not found')
+                        break
+                    }
                 }
             }
             setTimeout(() => {
@@ -775,11 +804,12 @@ Chromium ${process.versions.chrome}` : ''
                 this.panel = ''
             }
         },
-        sendLottie(lottie) {
+        async sendLottie(lottie) {
+            const messageType = await ipc.getMessgeTypeSetting()
             this.sendMessage({
                 content: `[QLottie: ${lottie.qlottie},${lottie.id}]`,
                 room: this.selectedRoom,
-                messageType: 'text',
+                messageType: messageType === 'anonymous' ? 'anonymous' : 'text',
             })
             if (window.innerWidth < 1200) {
                 this.panel = ''
@@ -816,17 +846,14 @@ Chromium ${process.versions.chrome}` : ''
             if (!room) return
             this.lastUnreadCount = room.unreadCount
             this.lastUnreadAt = !!room.at
-            this.selectedRoom.at = false
-            ipc.updateRoom(this.selectedRoom.roomId, { at: false })
+            if (this.selectedRoom.roomId != 0) {
+                this.selectedRoom.at = false
+                ipc.updateRoom(this.selectedRoom.roomId, { at: false })
+            }
             if (this.selectedRoom.roomId === room.roomId) return
             this.selectedRoomId = room.roomId
             ipc.setSelectedRoom(room.roomId, room.roomName)
             this.fetchMessage(true)
-            if (this.selectedRoomId < 0)
-                ipc.getGroup(-this.selectedRoomId).then(e =>
-                    this.membersCount = e.member_count)
-            else
-                this.membersCount = 0
         },
         downloadImage: ipc.downloadImage,
         pokeGroup(uin) {
@@ -877,11 +904,12 @@ Chromium ${process.versions.chrome}` : ''
             ipc.setRoomPanelSetting(this.roomPanelAvatarOnly, width)
         },
         sendForward(id, name) {
-            this.$refs.room.sendForward(id, name)
+            this.$refs.room.sendForward(id, name, this.forwardMulti)
             this.forwardShown = false
         },
-        chooseForwardTarget() {
+        chooseForwardTarget(multi = true) {
             this.forwardShown = true
+            this.forwardMulti = multi
         },
         editChatGroups() {
             this.$prompt('请输入新聊天分组名字', '提示', {
@@ -931,12 +959,15 @@ Chromium ${process.versions.chrome}` : ''
                 .findIndex(({ name }) => name === groupName)
             const chatGroup = this.chatGroups[index]
 
+            const roomName = this.selectedRoomId < 0 && this.removeGroupNameEmotes
+                ? removeGroupNameEmotes(this.selectedRoom.roomName)
+                : this.selectedRoom.roomName
             // 移除 room
             if (chatGroup.rooms.includes(this.selectedRoomId)) {
                 chatGroup.rooms = chatGroup.rooms.filter(e => e !== this.selectedRoomId)
                 this.$message({
                     type: 'success',
-                    message: `已将 ${this.selectedRoom.roomName} 移出分组 ${groupName}`,
+                    message: `已将 ${roomName} 移出分组 ${groupName}`,
                 })
             }
             // 添加 room
@@ -944,7 +975,7 @@ Chromium ${process.versions.chrome}` : ''
                 chatGroup.rooms.push(this.selectedRoomId)
                 this.$message({
                     type: 'success',
-                    message: `已将 ${this.selectedRoom.roomName} 加入分组 ${groupName}`,
+                    message: `已将 ${roomName} 加入分组 ${groupName}`,
                 })
             }
 
@@ -980,7 +1011,29 @@ Chromium ${process.versions.chrome}` : ''
         },
         backContact() {
             this.showPanel = 'contact'
-        }
+        },
+        sendDice(value) {
+            if (!value) {
+                value = Math.floor(Math.random() * 6) + 1
+            }
+            this.sendDiceShown = false
+            this.sendMessage({
+                content: value.toString(),
+                room: this.selectedRoom,
+                messageType: 'dice',
+            })
+        },
+        sendRps(value) {
+            if (!value) {
+                value = Math.floor(Math.random() * 3) + 1
+            }
+            this.sendRpsShown = false
+            this.sendMessage({
+                content: value.toString(),
+                room: this.selectedRoom,
+                messageType: 'rps',
+            })
+        },
     },
     computed: {
         cssVars() {
@@ -1194,6 +1247,14 @@ main div {
     }
 
     &.is-single {
+        flex-grow: 1;
+    }
+}
+
+.random-select {
+    display: flex;
+
+    .el-button {
         flex-grow: 1;
     }
 }

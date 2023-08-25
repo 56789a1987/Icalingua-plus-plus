@@ -9,7 +9,7 @@
         </div>
 
         <div v-if="message.system" class="vac-card-info vac-card-system">
-            {{ message.content }}
+            {{ usePanguJs ? panguSpacing(message.content) : message.content }}
         </div>
 
         <div
@@ -22,7 +22,7 @@
             <slot name="message" v-bind="{ message }">
                 <div
                     class="vac-message-sender-avatar"
-                    @click.right="$emit('avatar-ctx')"
+                    @click.right="$emit('avatar-ctx', $event)"
                     @dblclick="$emit('poke')"
                     v-if="roomUsers.length > 2 && message.senderId !== currentUserId"
                 >
@@ -44,7 +44,7 @@
                 <div
                     class="vac-message-container"
                     :class="{ 'vac-message-container-offset': messageOffset }"
-                    @click.right="$emit('ctx')"
+                    @click.right="$emit('ctx', $event)"
                 >
                     <div
                         class="vac-message-card"
@@ -95,6 +95,7 @@
                             :forward-res-id="forwardResId"
                             :hide-chat-image-by-default="hideChatImageByDefault"
                             :local-image-viewer-by-default="localImageViewerByDefault"
+                            :usePanguJs="usePanguJs"
                             @open-forward="$emit('open-forward', $event)"
                             @scroll-to-message="$emit('scroll-to-message', $event)"
                         />
@@ -202,6 +203,7 @@
                             :forward-res-id="forwardResId"
                             :code="message.code"
                             :disableQLottie="disableQLottie"
+                            :usePanguJs="usePanguJs"
                             @open-forward="$emit('open-forward', $event)"
                         >
                             <template #deleted-icon="data">
@@ -235,6 +237,7 @@ import LottieAnimation from '../../../LottieAnimation'
 import ipc from '../../../../utils/ipc'
 import getImageUrlByMd5 from '../../../../../utils/getImageUrlByMd5'
 import getAvatarUrl from '../../../../../utils/getAvatarUrl'
+import pangu from 'pangu'
 
 export default {
     name: 'Message',
@@ -270,6 +273,7 @@ export default {
         localImageViewerByDefault: { type: Boolean, required: true },
         disableQLottie: { type: Boolean, required: true },
         recordPath: { type: String, required: true },
+        usePanguJs: { type: Boolean, required: false, default: false },
     },
 
     data() {
@@ -405,6 +409,7 @@ export default {
             const { type } = file
             return type.toLowerCase().includes('audio/')
         },
+        panguSpacing: (text) => pangu.spacing(text),
     },
 }
 </script>
@@ -438,8 +443,8 @@ export default {
 }
 
 .vac-card-system {
-    max-width: 250px;
-    padding: 8px 4px;
+    width: fit-content;
+    padding: 8px 20px;
     color: var(--chat-message-color-system);
     background: var(--chat-message-bg-color-system);
 }

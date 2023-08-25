@@ -89,6 +89,9 @@ import ChatGroup from '@icalingua/types/ChatGroup'
 import SpecialFeature from '@icalingua/types/SpecialFeature'
 import { LoginErrorEventData } from 'oicq-icalingua-plus-plus'
 import { SliderEventData } from 'oicq-icalingua-plus-plus'
+import removeGroupNameEmotes from '../../utils/removeGroupNameEmotes'
+import { spacingNotification } from '../../utils/panguSpacing'
+import formatDuration from '../../utils/formatDuration'
 
 let bot: Client
 let storage: StorageProvider
@@ -145,6 +148,7 @@ const eventHandlers = {
                     ? (<GroupMessageEventData>data).anonymous.flag
                     : null,
             bubble_id: data.bubble_id,
+            subid: data.sender['subid'],
         }
 
         let room = await storage.getRoom(roomId)
@@ -203,6 +207,13 @@ const eventHandlers = {
             !isSelfMsg &&
             !getConfig().disableNotification
         ) {
+            const notifRoomName =
+                room.roomId < 0 && getConfig().removeGroupNameEmotes
+                    ? removeGroupNameEmotes(room.roomName)
+                    : room.roomName
+            const notifMessageContent = getConfig().usePanguJsRecv
+                ? spacingNotification(lastMessage.content)
+                : lastMessage.content
             // notification
             if (lastMessage.content === '[窗口抖动]') {
                 tryToShowAllWindows()
@@ -212,10 +223,10 @@ const eventHandlers = {
                 if (process.platform === 'darwin' || process.platform === 'win32') {
                     if (ElectronNotification.isSupported()) {
                         const notif = new ElectronNotification({
-                            title: room.roomName,
-                            body: (groupId ? senderName + ': ' : '') + lastMessage.content,
+                            title: notifRoomName,
+                            body: (groupId ? senderName + ': ' : '') + notifMessageContent,
                             hasReply: true,
-                            replyPlaceholder: 'Reply to ' + room.roomName,
+                            replyPlaceholder: 'Reply to ' + notifRoomName,
                             icon: await avatarCache(getAvatarUrl(roomId, true)),
                             actions: [
                                 {
@@ -253,15 +264,15 @@ const eventHandlers = {
                     if (await isInlineReplySupported()) actions['inline-reply'] = '回复...'
 
                     const notifParams = {
-                        summary: room.roomName,
+                        summary: notifRoomName,
                         appName: 'Icalingua++',
                         category: 'im.received',
                         'desktop-entry': 'icalingua',
                         urgency: 1,
                         timeout: 5000,
-                        body: (groupId ? senderName + ': ' : '') + lastMessage.content,
+                        body: (groupId ? senderName + ': ' : '') + notifMessageContent,
                         icon: await avatarCache(getAvatarUrl(roomId, true)),
-                        'x-kde-reply-placeholder-text': '发送到 ' + room.roomName,
+                        'x-kde-reply-placeholder-text': '发送到 ' + notifRoomName,
                         'x-kde-reply-submit-button-text': '发送',
                         actions,
                     }
@@ -322,7 +333,7 @@ const eventHandlers = {
             const custom_path = path.join(app.getPath('userData'), 'custom')
             const requireFunc = eval('require')
             try {
-                requireFunc(custom_path).onMessage(data, bot)
+                requireFunc(custom_path).onMessage(data, bot, { storage, ui })
             } catch (e) {
                 ui.messageError('自定义插件出错')
                 errorHandler(e, true)
@@ -560,7 +571,7 @@ const eventHandlers = {
         if (muteAll && data.duration > 0) content += '开启了全员禁言'
         else if (muteAll) content += '关闭了全员禁言'
         else if (data.duration === 0) content += `将 ${mutedUserName} 解除禁言`
-        else content += `禁言 ${mutedUserName} ${data.duration / 60} 分钟`
+        else content += `禁言 ${mutedUserName} ${formatDuration(data.duration)}`
         const message: Message = {
             _id: `mute-${now.getTime()}-${data.user_id}-${data.operator_id}`,
             content,
@@ -785,6 +796,15 @@ const eventHandlers = {
     async requestAdd(data: FriendAddEventData | GroupAddEventData | GroupInviteEventData) {
         //console.log(data)
         ui.sendAddRequest(data)
+        let notifBody
+        if (data.request_type === 'friend') {
+            notifBody = '申请添加你为好友'
+        } else {
+            const groupName = getConfig().removeGroupNameEmotes
+                ? removeGroupNameEmotes(data.group_name)
+                : data.group_name
+            notifBody = '申请加入：' + groupName
+        }
 
         //notification
         const notif = new Notification({
@@ -794,7 +814,7 @@ const eventHandlers = {
             'desktop-entry': 'icalingua',
             urgency: 1,
             timeout: 0,
-            body: data.request_type === 'friend' ? '申请添加你为好友' : '申请加入：' + data.group_name,
+            body: notifBody,
             icon: await avatarCache(getAvatarUrl(data.user_id)),
             actions: {
                 default: '',
@@ -982,25 +1002,40 @@ const initStorage = async () => {
                 storage = new RedisStorageProvider(loginForm.rdsHost, `${loginForm.username}`)
                 break
             case 'sqlite':
-                storage = new SQLStorageProvider(`${loginForm.username}`, 'sqlite3', {
-                    dataPath: app.getPath('userData'),
-                })
+                storage = new SQLStorageProvider(
+                    `${loginForm.username}`,
+                    'sqlite3',
+                    {
+                        dataPath: app.getPath('userData'),
+                    },
+                    errorHandler,
+                )
                 break
             case 'mysql':
-                storage = new SQLStorageProvider(`${loginForm.username}`, 'mysql', {
-                    host: loginForm.sqlHost,
-                    user: loginForm.sqlUsername,
-                    password: loginForm.sqlPassword,
-                    database: loginForm.sqlDatabase,
-                })
+                storage = new SQLStorageProvider(
+                    `${loginForm.username}`,
+                    'mysql',
+                    {
+                        host: loginForm.sqlHost,
+                        user: loginForm.sqlUsername,
+                        password: loginForm.sqlPassword,
+                        database: loginForm.sqlDatabase,
+                    },
+                    errorHandler,
+                )
                 break
             case 'pg':
-                storage = new SQLStorageProvider(`${loginForm.username}`, 'pg', {
-                    host: loginForm.sqlHost,
-                    user: loginForm.sqlUsername,
-                    password: loginForm.sqlPassword,
-                    database: loginForm.sqlDatabase,
-                })
+                storage = new SQLStorageProvider(
+                    `${loginForm.username}`,
+                    'pg',
+                    {
+                        host: loginForm.sqlHost,
+                        user: loginForm.sqlUsername,
+                        password: loginForm.sqlPassword,
+                        database: loginForm.sqlDatabase,
+                    },
+                    errorHandler,
+                )
                 break
             default:
                 break
@@ -1341,7 +1376,7 @@ const adapter: OicqAdapter = {
                 replyUin = parsed.readUInt32BE(roomId < 0 ? 4 : 0)
             }
 
-            if (roomId < 0)
+            if (roomId < 0 && replyUin !== 80000000)
                 chain.push(
                     {
                         type: 'at',
@@ -1528,7 +1563,7 @@ const adapter: OicqAdapter = {
             if (idReg && idReg.length >= 3 && content === idReg[0]) {
                 const qlottie = idReg[1]
                 const faceId = idReg[2]
-                chain.length = 0
+                chain.length = chain[0].type === 'anonymous' ? 1 : 0
                 chain.push({
                     type: 'face',
                     data: {
@@ -1578,6 +1613,9 @@ const adapter: OicqAdapter = {
                 ignore_self: false,
                 brief: true,
                 log_level: process.env.NODE_ENV === 'development' ? 'warn' : 'error',
+                sign_api_addr: form.signAPIAddress,
+                sign_api_key: form.signAPIKey,
+                force_algo_T544: form.forceAlgoT544,
             })
             _sendPrivateMsg = bot.sendPrivateMsg
             bot.sendPrivateMsg = async (user_id: number, message: MessageElem[] | string, auto_escape?: boolean) => {
@@ -1723,18 +1761,35 @@ const adapter: OicqAdapter = {
         const messages = []
         for (let i = 0; i < history.data.length; i++) {
             const data = history.data[i]
-            const message: Message = {
-                senderId: data.user_id,
-                username: data.nickname,
-                content: '',
-                timestamp: formatDate('hh:mm:ss', new Date(data.time * 1000)),
-                date: formatDate('yyyy/MM/dd', new Date(data.time * 1000)),
-                _id: String(data.group_id || -1) + '|' + data.seq,
-                time: data.time * 1000,
-                files: [],
-                bubble_id: data.bubble_id,
+            data.time = Number(data.time)
+            let message: Message
+            try {
+                message = {
+                    senderId: data.user_id,
+                    username: data.nickname,
+                    content: '',
+                    timestamp: formatDate('hh:mm:ss', new Date(data.time * 1000)),
+                    date: formatDate('yyyy/MM/dd', new Date(data.time * 1000)),
+                    _id: String(data.group_id || -1) + '|' + data.seq,
+                    time: data.time * 1000,
+                    files: [],
+                    bubble_id: data.bubble_id,
+                }
+                await processMessage(data.message, message, {}, ui.getSelectedRoomId())
+            } catch (e) {
+                message = {
+                    senderId: 0,
+                    username: '错误',
+                    content: JSON.stringify(data),
+                    code: JSON.stringify(e),
+                    timestamp: formatDate('hh:mm:ss'),
+                    date: formatDate('yyyy/MM/dd'),
+                    _id: Date.now(),
+                    time: Date.now(),
+                    files: [],
+                }
+                errorHandler(e)
             }
-            await processMessage(data.message, message, {}, ui.getSelectedRoomId())
             messages.push(message)
         }
         return messages
@@ -1748,7 +1803,7 @@ const adapter: OicqAdapter = {
         try {
             meta = bot.acquireGfs(gin).download(fid)
         } catch (e) {
-            errorHandler(e)
+            errorHandler(e, true)
             meta = {
                 name: e.message + '(' + e.code + ')',
                 url: 'error',
@@ -1983,7 +2038,7 @@ const adapter: OicqAdapter = {
             ui.messageSuccess(`${room.roomName}(${Math.abs(roomId)}) 已拉取 ${messages.length} 条消息`)
             ui.clearHistoryCount()
         } else {
-            ui.message(`${room.roomName}(${Math.abs(roomId)}) 已拉取 ${messages.length} 条消息，正在后台继续拉取`)
+            ui.message(`${room.roomName}(${Math.abs(roomId)}) 后台拉取中，已拉取 ${messages.length} 条消息`)
             {
                 const { messages } = await fetchLoop()
                 await storage.addMessages(roomId, messages)
@@ -2001,7 +2056,7 @@ const adapter: OicqAdapter = {
     },
 
     async getRoamingStamp(no_cache?: boolean): Promise<RoamingStamp[]> {
-        const roaming_stamp = (await bot.getRoamingStamp(no_cache)).data
+        const roaming_stamp = (await bot.getRoamingStamp(no_cache)).data || []
         let stamps = []
 
         for (let index: number = roaming_stamp.length - 1; index >= 0; index--) {
@@ -2065,8 +2120,11 @@ const adapter: OicqAdapter = {
             }
             return imei + calcSP(imei)
         }
+        const imei = _genIMEI()
+        const md5 = (data: string) => crypto.createHash('md5').update(data).digest()
         const device = `{
         "--begin--":    "该设备文件为尝试解决${username}的风控时随机生成。",
+        "--version--":  2,
         "product":      "M2012K11AC",
         "device":       "alioth",
         "board":        "alioth",
@@ -2074,14 +2132,13 @@ const adapter: OicqAdapter = {
         "model":        "ILPP ${randomString(4).toUpperCase()}",
         "wifi_ssid":    "Redmi-${randomString(7).toUpperCase()}",
         "bootloader":   "U-boot",
-        "android_id":   "${randomString(4)}.${randomString(6, true)}.${randomString(4, true)}",
+        "android_ver":  "${randomString(4)}.${randomString(6, true)}.${randomString(4, true)}",
         "boot_id":      "${crypto.randomUUID()}",
         "proc_version": "Linux version 4.19.157-${randomString(13)} (android-build@xiaomi.com)",
-        "mac_address":  "2B:${randomString(2).toUpperCase()}:${randomString(2).toUpperCase()}:${randomString(
-            2,
-        ).toUpperCase()}:${randomString(2).toUpperCase()}:${randomString(2).toUpperCase()}",
+        "mac_address":  "02:00:00:00:00:00",
         "ip_address":   "192.168.${randomString(2, true)}.${randomString(2, true)}",
-        "imei":         "${_genIMEI()}",
+        "imei":         "${imei}",
+        "android_id":   "${md5(imei).toString('hex').slice(0, 16)}",
         "incremental":  "${randomString(10, true)}",
         "--end--":      "修改后可能需要重新验证设备。"
     }`

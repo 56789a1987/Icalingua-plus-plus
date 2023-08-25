@@ -40,10 +40,12 @@ import {
 } from '../utils/windowManager'
 import ChatGroup from '@icalingua/types/ChatGroup'
 import SpecialFeature from '@icalingua/types/SpecialFeature'
+import removeGroupNameEmotes from '../../utils/removeGroupNameEmotes'
+import { spacingNotification } from '../../utils/panguSpacing'
 
 // 这是所对应服务端协议的版本号，如果协议有变动比如说调整了 API 才会更改。
 // 如果只是功能上的变动的话就不会改这个版本号，混用协议版本相同的服务端完全没有问题
-const EXCEPTED_PROTOCOL_VERSION = '2.9.10'
+const EXCEPTED_PROTOCOL_VERSION = '2.10.1'
 
 let socket: Socket
 let uin = 0
@@ -171,10 +173,24 @@ const attachSocketEvents = () => {
                     ui.chroom(data.roomId)
                 }
                 // notification
+                const notifRoomName =
+                    data.roomId < 0 && getConfig().removeGroupNameEmotes
+                        ? removeGroupNameEmotes(data.data.title)
+                        : data.data.title
+                if (getConfig().usePanguJsRecv) {
+                    const index = data.data.body.indexOf(': ')
+                    if (index == -1) {
+                        data.data.body = spacingNotification(data.data.body)
+                    } else {
+                        const username = data.data.body.slice(0, index)
+                        const content = data.data.body.slice(index + 2)
+                        data.data.body = username + ': ' + spacingNotification(content)
+                    }
+                }
                 if (process.platform === 'darwin' || process.platform === 'win32') {
                     if (!ElectronNotification.isSupported()) return
                     const notif = new ElectronNotification({
-                        title: data.data.title,
+                        title: notifRoomName,
                         body: data.data.body,
                         hasReply: data.data.hasReply,
                         replyPlaceholder: data.data.replyPlaceholder,
@@ -215,14 +231,14 @@ const attachSocketEvents = () => {
 
                     const notifParams = {
                         ...data.data,
-                        summary: data.data.title,
+                        summary: notifRoomName,
                         appName: 'Icalingua++',
                         category: 'im.received',
                         'desktop-entry': 'icalingua',
                         urgency: 1,
                         timeout: 5000,
                         icon: await avatarCache(getAvatarUrl(data.roomId, true)),
-                        'x-kde-reply-placeholder-text': '发送到 ' + data.data.title,
+                        'x-kde-reply-placeholder-text': '发送到 ' + notifRoomName,
                         'x-kde-reply-submit-button-text': '发送',
                         actions,
                     }
@@ -431,7 +447,7 @@ const adapter: Adapter = {
                 transports: ['websocket'],
             })
             socket.once('connect_error', async (e) => {
-                console.log(e)
+                errorHandler(e, true)
                 await dialog.showMessageBox(getMainWindow(), {
                     title: '错误',
                     message: e && e.message ? e.message : '连接失败',
@@ -536,7 +552,8 @@ const adapter: Adapter = {
         socket.emit('pinRoom', roomId, pin)
     },
     reLogin(): void {
-        socket.emit('reLogin')
+        if (socket.disconnected) socket.connect()
+        else socket.emit('reLogin')
     },
     removeChat(roomId: number) {
         socket.emit('removeChat', roomId)
@@ -575,7 +592,7 @@ const adapter: Adapter = {
                         proxy: false,
                     })
                     .catch((e) => {
-                        console.log(e)
+                        errorHandler(e, true)
                         if (e.response.status === 413) {
                             ui.messageError('语音过大，无法发送')
                         } else {
@@ -592,7 +609,7 @@ const adapter: Adapter = {
                           proxy: false,
                       })
                       .catch((e) => {
-                          console.log(e)
+                          errorHandler(e, true)
                           if (e.response.status === 413) {
                               ui.messageError('图片过大，无法发送')
                           } else {
