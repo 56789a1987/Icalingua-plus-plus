@@ -30,6 +30,8 @@ import {
     deleteMessage,
     fetchHistory,
     fetchLatestHistory,
+    getFriend,
+    getGroup,
     getCookies,
     getGroupMemberInfo,
     getMsgNewURL,
@@ -197,6 +199,8 @@ const buildRoomMenu = async (room: Room): Promise<Menu> => {
         },
         {
             label: '自动下载',
+            enabled: getConfig().adapter === 'oicq',
+            sublabel: getConfig().adapter === 'oicq' ? undefined : 'bridge 暂不支持',
             submenu: [
                 {
                     type: 'checkbox',
@@ -219,6 +223,58 @@ const buildRoomMenu = async (room: Room): Promise<Menu> => {
                     },
                 },
             ],
+        },
+        {
+            label: '设置备注名',
+            async click() {
+                const windowOptions = {
+                    height: 180,
+                    width: 600,
+                    autoHideMenuBar: true,
+                    webPreferences: {
+                        contextIsolation: false,
+                        nodeIntegration: true,
+                    },
+                }
+                if (room.roomId < 0) {
+                    const groupInfo = await getGroup(-room.roomId)
+                    if (!groupInfo) {
+                        ui.messageError('您不是本群成员，无法为本群添加备注')
+                        return
+                    }
+                    const groupName = getConfig().removeGroupNameEmotes
+                        ? removeGroupNameEmotes(groupInfo.group_name)
+                        : groupInfo.group_name
+                    await newIcalinguaWindow(windowOptions).loadURL(
+                        getWinUrl() +
+                            '#/remarkNameEdit/' +
+                            0 +
+                            '/' +
+                            groupInfo.group_id +
+                            '/' +
+                            querystring.escape(groupName) +
+                            '/' +
+                            querystring.escape(groupInfo.group_remark || groupName),
+                    )
+                } else {
+                    const friendInfo = await getFriend(room.roomId)
+                    if (!friendInfo) {
+                        ui.messageError('该联系人还不是您的好友，无法为该联系人添加备注')
+                        return
+                    }
+                    await newIcalinguaWindow(windowOptions).loadURL(
+                        getWinUrl() +
+                            '#/remarkNameEdit/' +
+                            friendInfo.user_id +
+                            '/' +
+                            0 +
+                            '/' +
+                            querystring.escape(friendInfo.nickname) +
+                            '/' +
+                            querystring.escape(friendInfo.remark || friendInfo.nickname),
+                    )
+                }
+            },
         },
     ])
     const webApps = new Menu()
@@ -517,31 +573,67 @@ const buildRoomMenu = async (room: Room): Promise<Menu> => {
         menu.append(
             new MenuItem({
                 label: '群成员管理',
-                async click() {
-                    const win = newIcalinguaWindow({
-                        autoHideMenuBar: true,
-                        webPreferences: {
-                            contextIsolation: false,
+                submenu: [
+                    {
+                        label: '新版',
+                        async click() {
+                            const win = newIcalinguaWindow({
+                                autoHideMenuBar: true,
+                                webPreferences: {
+                                    contextIsolation: false,
+                                    preload: path.join(getStaticPath(), 'groupMemberPreload.js'),
+                                },
+                            })
+                            win.maximize()
+                            const cookies = await getCookies('qun.qq.com')
+                            for (const i in cookies) {
+                                await win.webContents.session.cookies.set({
+                                    url: 'https://qun.qq.com',
+                                    domain: '.qun.qq.com',
+                                    name: i,
+                                    value: cookies[i],
+                                })
+                            }
+                            win.webContents.on('dom-ready', () =>
+                                win.webContents.insertCSS(
+                                    '.t-select__wrap{pointer-events: none;} ' +
+                                        '.t-default-menu{display: none !important;}',
+                                ),
+                            )
+                            await win.loadURL(
+                                'https://qun.qq.com/manage.html#/member-manage/base-manage' + '?gc=' + -room.roomId,
+                            )
                         },
-                    })
-                    win.maximize()
-                    const cookies = await getCookies('qun.qq.com')
-                    for (const i in cookies) {
-                        await win.webContents.session.cookies.set({
-                            url: 'https://qun.qq.com',
-                            domain: '.qun.qq.com',
-                            name: i,
-                            value: cookies[i],
-                        })
-                    }
-                    win.webContents.on('dom-ready', () =>
-                        win.webContents.insertCSS(
-                            '.header,.footer>p:not(:last-child),#changeGroup{display:none} ' +
-                                '.body{padding-top:0 !important;margin:0 !important}',
-                        ),
-                    )
-                    await win.loadURL('https://qun.qq.com/member.html#gid=' + -room.roomId)
-                },
+                    },
+                    {
+                        label: '旧版',
+                        async click() {
+                            const win = newIcalinguaWindow({
+                                autoHideMenuBar: true,
+                                webPreferences: {
+                                    contextIsolation: false,
+                                },
+                            })
+                            win.maximize()
+                            const cookies = await getCookies('qun.qq.com')
+                            for (const i in cookies) {
+                                await win.webContents.session.cookies.set({
+                                    url: 'https://qun.qq.com',
+                                    domain: '.qun.qq.com',
+                                    name: i,
+                                    value: cookies[i],
+                                })
+                            }
+                            win.webContents.on('dom-ready', () =>
+                                win.webContents.insertCSS(
+                                    '.header,.footer>p:not(:last-child),#changeGroup{display:none} ' +
+                                        '.body{padding-top:0 !important;margin:0 !important}',
+                                ),
+                            )
+                            await win.loadURL('https://qun.qq.com/member.html#gid=' + -room.roomId)
+                        },
+                    },
+                ],
             }),
         )
         menu.append(
@@ -741,6 +833,77 @@ export const updateAppMenu = async () => {
                 },
             }),
             new MenuItem({
+                label: 'QQ 群管理',
+                submenu: [
+                    {
+                        label: '新版',
+                        async click() {
+                            const win = newIcalinguaWindow({
+                                autoHideMenuBar: true,
+                                webPreferences: {
+                                    contextIsolation: false,
+                                },
+                            })
+                            win.maximize()
+                            const cookies = await getCookies('qun.qq.com')
+                            for (const i in cookies) {
+                                await win.webContents.session.cookies.set({
+                                    url: 'https://qun.qq.com',
+                                    domain: '.qun.qq.com',
+                                    name: i,
+                                    value: cookies[i],
+                                })
+                            }
+                            await win.loadURL('https://qun.qq.com/manage.html#/member-manage/base-manage')
+                        },
+                    },
+                    {
+                        label: '旧版',
+                        async click() {
+                            const win = newIcalinguaWindow({
+                                autoHideMenuBar: true,
+                                webPreferences: {
+                                    contextIsolation: false,
+                                },
+                            })
+                            win.maximize()
+                            const cookies = await getCookies('qun.qq.com')
+                            for (const i in cookies) {
+                                await win.webContents.session.cookies.set({
+                                    url: 'https://qun.qq.com',
+                                    domain: '.qun.qq.com',
+                                    name: i,
+                                    value: cookies[i],
+                                })
+                            }
+                            await win.loadURL('https://qun.qq.com/member.html')
+                        },
+                    },
+                ],
+            }),
+            new MenuItem({
+                label: 'QQ 空间',
+                async click() {
+                    const win = newIcalinguaWindow({
+                        autoHideMenuBar: true,
+                        webPreferences: {
+                            contextIsolation: false,
+                        },
+                    })
+                    win.maximize()
+                    const cookies = await getCookies('qzone.qq.com')
+                    for (const i in cookies) {
+                        await win.webContents.session.cookies.set({
+                            url: 'https://user.qzone.qq.com',
+                            domain: '.qzone.qq.com',
+                            name: i,
+                            value: cookies[i],
+                        })
+                    }
+                    await win.loadURL('https://user.qzone.qq.com/' + getUin())
+                },
+            }),
+            new MenuItem({
                 label: '开发者工具',
                 role: 'toggleDevTools',
             }),
@@ -767,6 +930,15 @@ export const updateAppMenu = async () => {
                 role: 'close',
                 visible: false,
                 accelerator: 'CommandOrControl+H',
+            }),
+            new MenuItem({
+                label: '注销',
+                sublabel: '删除记录的密码',
+                visible: getConfig().adapter === 'oicq',
+                click: () => {
+                    getConfig().account.password = ''
+                    exit()
+                },
             }),
             new MenuItem({
                 label: '退出',
@@ -982,6 +1154,27 @@ export const updateAppMenu = async () => {
                 label: '定制聊天界面',
                 submenu: [
                     {
+                        label: '隐藏聊天图片',
+                        type: 'checkbox',
+                        checked: getConfig().hideChatImageByDefault,
+                        click: (menuItem) => {
+                            getConfig().hideChatImageByDefault = menuItem.checked
+                            saveConfigFile()
+                            ui.message('聊天图片已自动' + (menuItem.checked ? '隐藏' : '显示'))
+                            ui.setHideChatImageByDefault(menuItem.checked)
+                        },
+                    },
+                    {
+                        label: '禁用超级表情',
+                        type: 'checkbox',
+                        checked: getConfig().disableQLottie,
+                        click: (menuItem) => {
+                            getConfig().disableQLottie = menuItem.checked
+                            saveConfigFile()
+                            ui.setDisableQLottie(menuItem.checked)
+                        },
+                    },
+                    {
                         label: '禁用同会话多图切换',
                         type: 'checkbox',
                         checked: getConfig().singleImageMode,
@@ -1018,27 +1211,6 @@ export const updateAppMenu = async () => {
                             getConfig().linkify = menuItem.checked
                             saveConfigFile()
                             ui.message('高亮 URL 功能已' + (menuItem.checked ? '开启' : '关闭') + '，重新加载后生效')
-                        },
-                    },
-                    {
-                        label: '隐藏聊天图片',
-                        type: 'checkbox',
-                        checked: getConfig().hideChatImageByDefault,
-                        click: (menuItem) => {
-                            getConfig().hideChatImageByDefault = menuItem.checked
-                            saveConfigFile()
-                            ui.message('隐藏聊天图片已' + (menuItem.checked ? '开启' : '关闭'))
-                            ui.setHideChatImageByDefault(menuItem.checked)
-                        },
-                    },
-                    {
-                        label: '禁用超级表情',
-                        type: 'checkbox',
-                        checked: getConfig().disableQLottie,
-                        click: (menuItem) => {
-                            getConfig().disableQLottie = menuItem.checked
-                            saveConfigFile()
-                            ui.setDisableQLottie(menuItem.checked)
                         },
                     },
                     {
@@ -1079,6 +1251,19 @@ export const updateAppMenu = async () => {
                             updateAppMenu()
                             updateTrayIcon()
                             ui.setRemoveGroupNameEmotes(menuItem.checked)
+                        },
+                    },
+                    {
+                        label: '时间倒序排列 Stickers',
+                        type: 'checkbox',
+                        checked: getConfig().descSortStickersByTime,
+                        click: (menuItem) => {
+                            getConfig().descSortStickersByTime = menuItem.checked
+                            saveConfigFile()
+                            updateAppMenu()
+                            ui.message(
+                                '时间倒序排列 Stickers 已' + (menuItem.checked ? '开启' : '关闭') + '，重新加载后生效',
+                            )
                         },
                     },
                     {
@@ -2050,7 +2235,8 @@ ipcMain.on('popupAvatarMenu', async (e, message: Message, room: Room, ev) => {
             },
         },
         {
-            label: `复制 "${message.senderId}"`,
+            label: message.senderId === 1094950020 ? '发送者 QQ 已被服务器屏蔽' : `复制 "${message.senderId}"`,
+            enabled: message.senderId !== 1094950020,
             click: () => {
                 clipboard.writeText(message.senderId.toString())
             },
@@ -2089,6 +2275,8 @@ ipcMain.on('popupAvatarMenu', async (e, message: Message, room: Room, ev) => {
                     const QCLOUD_AVATAR_REGEX =
                         /^https:\/\/[a-z0-9\-]+\.cos\.[a-z\-]+\.myqcloud\.com\/[0-9]+-[0-9]+\.jpg$/
                     if (QCLOUD_AVATAR_REGEX.test(message.mirai.eqq.avatarUrl)) openImage(message.mirai.eqq.avatarUrl)
+                } else if (message.head_img) {
+                    openImage(message.head_img)
                 } else {
                     openImage(`https://q1.qlogo.cn/g?b=qq&nk=${message.senderId}&s=0`)
                 }
@@ -2100,7 +2288,18 @@ ipcMain.on('popupAvatarMenu', async (e, message: Message, room: Room, ev) => {
             label: '下载头像',
             click: () => {
                 const basename = `${message.username}(${message.senderId})的头像_${new Date().getTime()}`
-                downloadImage(`https://q1.qlogo.cn/g?b=qq&nk=${message.senderId}&s=0`, false, basename)
+                if (message.mirai && message.mirai.eqq.avatarMd5) {
+                    downloadImage(getImageUrlByMd5(message.mirai.eqq.avatarMd5))
+                } else if (message.mirai && message.mirai.eqq.avatarUrl) {
+                    const QCLOUD_AVATAR_REGEX =
+                        /^https:\/\/[a-z0-9\-]+\.cos\.[a-z\-]+\.myqcloud\.com\/[0-9]+-[0-9]+\.jpg$/
+                    if (QCLOUD_AVATAR_REGEX.test(message.mirai.eqq.avatarUrl))
+                        downloadImage(message.mirai.eqq.avatarUrl)
+                } else if (message.head_img) {
+                    downloadImage(message.head_img, false, basename)
+                } else {
+                    downloadImage(`https://q1.qlogo.cn/g?b=qq&nk=${message.senderId}&s=0`, false, basename)
+                }
             },
         }),
     )

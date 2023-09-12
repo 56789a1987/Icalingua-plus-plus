@@ -133,6 +133,17 @@ function getRecent(name) {
 export default {
     name: 'Stickers',
     components: { VEmojiPicker },
+    watch: {
+        panel() {
+            this.recentFace = getRecent('recentFace')
+        },
+        open() {
+            this.recentFace = getRecent('recentFace')
+        },
+    },
+    props: {
+        open: { type: Boolean, required: false, default: false },
+    },
     data() {
         return {
             remote_pics: [],
@@ -144,6 +155,7 @@ export default {
             supportRemote: false,
             recentFace: getRecent('recentFace'),
             recentRemoteSticker: getRecent('recentRemoteSticker'),
+            descSortStickersByTime: true,
         }
     },
     async created() {
@@ -153,6 +165,7 @@ export default {
         this.generatingPath = new Set()
         this.panel = await ipc.getLastUsedStickerType()
         this.recentLocalSticker = getRecent('recentLocalSticker')
+        this.descSortStickersByTime = (await ipc.getSettings()).descSortStickersByTime
         this.DEFAULT_CATEGORY = DEFAULT_CATEGORY
         this.RECENT_CATEGORY = RECENT_CATEGORY
 
@@ -182,6 +195,7 @@ export default {
             await fs.promises.mkdir(this.preview_dir)
         }
         const updateDefaultDir = async () => {
+            if (this.current_dir != DEFAULT_CATEGORY) return
             /** @type {[string, fs.Stats][]} */
             let fileAndStats
             try {
@@ -198,12 +212,15 @@ export default {
                 .filter(([_, stat]) => stat.isDirectory())
                 .map(([i, _]) => i)
                 .sort()
-            if (this.current_dir != DEFAULT_CATEGORY) return
-            // 后添加的表情排在前面，类似于QQ
-            this.pics = fileAndStats
-                .filter(([_, stat]) => stat.isFile())
-                .sort(([_a, statA], [_b, statB]) => statB.mtime - statA.mtime)
-                .map(([i, _]) => i)
+            if (!this.descSortStickersByTime) {
+                this.pics = fileAndStats.filter(([_, stat]) => stat.isFile()).map(([i, _]) => i)
+            } else {
+                // 后添加的表情排在前面，类似于QQ
+                this.pics = fileAndStats
+                    .filter(([_, stat]) => stat.isFile())
+                    .sort(([_a, statA], [_b, statB]) => statB.mtime - statA.mtime)
+                    .map(([i, _]) => i)
+            }
         }
         updateDefaultDir()
         fs.watch(this.default_dir, updateDefaultDir)
@@ -261,6 +278,7 @@ export default {
             const subDir = dir == DEFAULT_CATEGORY ? '' : dir + '/'
             const fullDir = this.default_dir + subDir
             const updateDir = async () => {
+                if (this.current_dir != dir) return
                 /** @type {[string, fs.Stats][]} */
                 let fileAndStats
                 try {
@@ -273,11 +291,14 @@ export default {
                     console.error('Failed to update sticker dir', dir, err)
                     return
                 }
-                if (this.current_dir != dir) return
-                this.pics = fileAndStats
-                    .filter(([_, stat]) => stat.isFile())
-                    .sort(([_a, statA], [_b, statB]) => statB.mtime - statA.mtime)
-                    .map(([i, _]) => subDir + i)
+                if (!this.descSortStickersByTime) {
+                    this.pics = fileAndStats.filter(([_, stat]) => stat.isFile()).map(([i, _]) => subDir + i)
+                } else {
+                    this.pics = fileAndStats
+                        .filter(([_, stat]) => stat.isFile())
+                        .sort(([_a, statA], [_b, statB]) => statB.mtime - statA.mtime)
+                        .map(([i, _]) => subDir + i)
+                }
             }
             updateDir()
             if (dir == DEFAULT_CATEGORY || dir in this.watchedPath) return
@@ -310,12 +331,15 @@ export default {
         },
         pushRecent(name, img, max, elem, container) {
             const index = this[name].indexOf(img)
+            let recent = this[name]
             if (index != -1) {
-                this[name] = [img, ...this[name].slice(0, index), ...this[name].slice(index + 1)]
+                recent = [img, ...recent.slice(0, index), ...recent.slice(index + 1)]
             } else {
-                this[name] = [img, ...this[name].slice(0, max - 1)]
+                recent = [img, ...recent.slice(0, max - 1)]
             }
-            localStorage[name] = JSON.stringify(this[name])
+            localStorage[name] = JSON.stringify(recent)
+            if (name === 'recentFace') return
+            this[name] = recent
             if (!elem) return
             // 保持当前点击的表情位置不变
             const oldY = elem.getBoundingClientRect().y
